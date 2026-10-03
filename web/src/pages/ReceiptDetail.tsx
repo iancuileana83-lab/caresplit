@@ -31,7 +31,11 @@ export function ReceiptDetail() {
   const { id = '' } = useParams();
   const { family, viewer } = useViewAs();
   const arrival = (useLocation().state as { justSent?: boolean; failed?: Failure[] } | null) ?? null;
-  const state = useApi<ReceiptView>(`/api/receipts/${encodeURIComponent(id)}?as=${viewer.id}`);
+  // While an invoice is unpaid, look again every 10 s: PayPal tells the server when it is paid, and the page follows.
+  const state = useApi<ReceiptView>(`/api/receipts/${encodeURIComponent(id)}?as=${viewer.id}`, {
+    pollMs: 10_000,
+    pollWhile: (r) => !r.sample && r.shares.some((s) => s.status === 'SENT'),
+  });
   const nameOf = (memberId: string) => family.members.find((m) => m.id === memberId)?.name ?? memberId;
 
   // After an action the server returns the fresh receipt; show it without reloading the page.
@@ -50,6 +54,12 @@ export function ReceiptDetail() {
     setNotice(null);
     setDialog(null);
   }, [id, viewer.id]);
+
+  // New data from the quiet checks is at least as fresh as the answer to a button press: use it.
+  const loaded = state.status === 'ready' ? state.data : null;
+  useEffect(() => {
+    if (loaded) setFresh(null);
+  }, [loaded]);
 
   useEffect(() => {
     if (!arrival?.justSent || viewer.role !== 'organiser') return;
@@ -226,6 +236,9 @@ export function ReceiptDetail() {
                         <ExternalLink size={14} aria-hidden="true" />
                       </a>
                     )}
+                    {s.autoUpdatedAt && (
+                      <p className="mt-1 text-xs text-quiet">Updated automatically by PayPal at {new Date(s.autoUpdatedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</p>
+                    )}
                     {s.paidOutside && (
                       <p className="mt-1 text-sm text-quiet">
                         Paid outside PayPal ({METHOD_LABELS[s.paidOutside.method]})
@@ -266,6 +279,10 @@ export function ReceiptDetail() {
               </ul>
             </Card>
           </section>
+
+          {organiser && real && receipt.shares.some((s) => s.status === 'SENT') && (
+            <p className="text-center text-xs text-quiet">This page updates by itself when PayPal reports a payment.</p>
+          )}
 
           {organiser && (hasUnsent || hasSent) && (
             <div className="flex flex-col gap-2">

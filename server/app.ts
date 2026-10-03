@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import { Readable } from 'node:stream';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { careCreditRule, validateCareCredit } from '../shared/care';
@@ -9,11 +10,12 @@ import { accountEmail, sandboxAccounts } from './demo-data';
 import { parseFamilyUpdate } from './family-validate';
 import { getOrCreateFamily, resetFamily, VISITOR_ID } from './families';
 import { ReadError, type ReceiptReader } from './gemini';
-import { cancelInvoice, markPaidOutside, refreshStatuses, sendInvoices, ShareActionError, type InvoiceDeps } from './invoices';
+import { cancelInvoice, markPaidOutside, refreshStatuses, sendInvoices, ShareActionError, syncInvoiceFromWebhook, type InvoiceDeps } from './invoices';
 import type { LimitResult } from './limits';
 import { PayPalError, type PayPalClient } from './paypal';
 import type { ReceiptStore, Store, StoredFamily, StoredReceipt } from './store';
 import { parseMarkPaid, parseNewReceipt } from './validate';
+import { HANDLED_EVENTS, invoiceIdFromEvent, webhookHeaders } from './webhook';
 import { organiserView, viewOf, viewsFor } from './views';
 
 export interface AppOptions {
@@ -32,7 +34,13 @@ export interface AppOptions {
   writeLimiter?: (ip: string) => LimitResult;
   /** Called when a brand-new visitor family would be created, with the visitor's address. */
   familyLimiter?: (ip: string) => LimitResult;
+  /** The id PayPal gave our webhook. Without it the webhook endpoint stays off (503). */
+  webhookId?: string;
+  /** Called once per webhook call with the caller's address (each call costs a PayPal signature check). */
+  webhookLimiter?: (ip: string) => LimitResult;
 }
+
+const MAX_WEBHOOK_BYTES = 1024 * 1024;
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
@@ -47,7 +55,7 @@ const publicFamily = (f: StoredFamily): FamilyView => ({
   accounts: sandboxAccounts.map((a) => ({ id: a.id, label: a.label })), // labels only: the addresses stay on the server
 });
 
-export async function buildApp({ store, staticDir, reader, paypal, limiter, paypalLimiter, writeLimiter, familyLimiter }: AppOptions) {
+export async function buildApp({ store, staticDir, reader, paypal, limiter, paypalLimiter, writeLimiter, familyLimiter, webhookId, webhookLimiter }: AppOptions) {
   // Behind Cloud Run the real visitor address is the last entry of X-Forwarded-For (added by
   // Google's front end). Trust exactly one proxy, so a visitor cannot dodge the rate limits by
   // sending their own X-Forwarded-For header.
@@ -57,6 +65,55 @@ export async function buildApp({ store, staticDir, reader, paypal, limiter, payp
   app.addContentTypeParser(/^image\/(jpeg|png|webp|heic|heif)$/, { parseAs: 'buffer', bodyLimit: MAX_IMAGE_BYTES }, (_req, body, done) => done(null, body));
 
   app.get('/api/health', async () => ({ ok: true }));
+
+  // PayPal calls this when an invoice changes (paid, cancelled...). It has no visitor id: it is trusted only
+  // after PayPal itself confirms the signature, and even then the event only says which invoice to look at;
+  // the status is read from PayPal, so a replayed or reordered event cannot set a wrong one.
+  app.post(
+    '/api/paypal/webhook',
+    {
+      // Keep the exact text PayPal signed: the signature is checked against it, not against our re-parsed copy.
+      preParsing: async (req, _reply, payload) => {
+        const chunks: Buffer[] = [];
+        let size = 0;
+        for await (const chunk of payload) {
+          size += (chunk as Buffer).length;
+          if (size > MAX_WEBHOOK_BYTES) throw Object.assign(new Error('Payload too large'), { statusCode: 413 });
+          chunks.push(chunk as Buffer);
+        }
+        const raw = Buffer.concat(chunks);
+        (req as FastifyRequest & { rawBody?: string }).rawBody = raw.toString('utf8');
+        return Object.assign(Readable.from(raw), { receivedEncodedLength: raw.length });
+      },
+    },
+    async (req, reply) => {
+      if (!paypal || !webhookId) return reply.code(503).send({ error: 'PayPal webhooks are not set up on this server', code: 'not_configured' });
+      const limit = webhookLimiter?.(req.ip) ?? { ok: true as const };
+      if (!limit.ok) return reply.code(429).send({ error: 'Too many calls', code: limit.reason });
+
+      const rawBody = (req as FastifyRequest & { rawBody?: string }).rawBody;
+      const headers = webhookHeaders(req.headers);
+      const event = req.body as { event_type?: unknown } | null;
+      if (!rawBody || !headers || typeof event !== 'object' || event === null) return reply.code(400).send({ error: 'Not a PayPal webhook call' });
+
+      let genuine: boolean;
+      try {
+        genuine = await paypal.verifyWebhook({ webhookId, rawBody, headers });
+      } catch {
+        return reply.code(502).send({ error: 'Could not check the signature right now' }); // PayPal will try again later
+      }
+      if (!genuine) return reply.code(401).send({ error: 'The signature is not valid' });
+
+      if (typeof event.event_type !== 'string' || !HANDLED_EVENTS.has(event.event_type)) return { ok: true, ignored: 'event type not used' };
+      const invoiceId = invoiceIdFromEvent(event);
+      if (!invoiceId) return { ok: true, ignored: 'no invoice in the event' };
+      try {
+        return { ok: true, result: await syncInvoiceFromWebhook(invoiceId, store, paypal) };
+      } catch {
+        return reply.code(502).send({ error: 'Could not read the invoice right now' }); // PayPal will try again later
+      }
+    },
+  );
 
   interface Context {
     family: StoredFamily;
@@ -97,6 +154,7 @@ export async function buildApp({ store, staticDir, reader, paypal, limiter, payp
     paypal: paypalClient,
     members: c.family.members.map((m) => ({ id: m.id, name: m.name, role: m.role })),
     emailOf: (id) => accountEmail(c.family.members.find((m) => m.id === id)?.accountId),
+    rememberInvoice: (invoiceId, receiptId, memberId) => store.rememberInvoice(invoiceId, { familyId: c.family.id, receiptId, memberId }, c.family.expireAt),
   });
 
   app.get('/api/family', async (req, reply) => {

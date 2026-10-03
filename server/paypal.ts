@@ -48,6 +48,15 @@ export interface InvoiceInfo {
 
 const dollars = (cents: number) => (cents / 100).toFixed(2);
 
+/** The five headers PayPal signs a webhook call with. */
+export interface WebhookHeaders {
+  authAlgo: string;
+  certUrl: string;
+  transmissionId: string;
+  transmissionSig: string;
+  transmissionTime: string;
+}
+
 /** The ways a payment made outside PayPal can be recorded. */
 export const OUTSIDE_METHODS = ['CASH', 'BANK_TRANSFER', 'OTHER'] as const;
 export type OutsideMethod = (typeof OUTSIDE_METHODS)[number];
@@ -165,6 +174,28 @@ export function createPayPalClient(config: PayPalConfig) {
         note: payment.note,
         amount: { currency_code: 'USD', value: dollars(payment.amountCents) },
       });
+    },
+
+    /**
+     * Asks PayPal whether a webhook call really came from PayPal (its signature checks out for our webhook id).
+     * The event is embedded exactly as received, byte for byte: re-serialising it could change the text PayPal
+     * signed and make a genuine event fail. A PayPal outage throws, so the caller can ask PayPal to retry later.
+     */
+    async verifyWebhook(input: { webhookId: string; rawBody: string; headers: WebhookHeaders }): Promise<boolean> {
+      const h = input.headers;
+      const text =
+        `{"auth_algo":${JSON.stringify(h.authAlgo)},"cert_url":${JSON.stringify(h.certUrl)},"transmission_id":${JSON.stringify(h.transmissionId)},` +
+        `"transmission_sig":${JSON.stringify(h.transmissionSig)},"transmission_time":${JSON.stringify(h.transmissionTime)},` +
+        `"webhook_id":${JSON.stringify(input.webhookId)},"webhook_event":${input.rawBody}}`;
+      const res = await doFetch(`${SANDBOX}/v1/notifications/verify-webhook-signature`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${await token()}`, 'Content-Type': 'application/json' },
+        body: text,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      const json = (await res.json().catch(() => ({}))) as { verification_status?: string; debug_id?: string };
+      if (res.status >= 500) throw new PayPalError('PayPal could not check the signature right now', res.status, json.debug_id);
+      return res.ok && json.verification_status === 'SUCCESS';
     },
 
     async get(invoiceId: string): Promise<InvoiceInfo> {

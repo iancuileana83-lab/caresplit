@@ -60,10 +60,43 @@ export type ApiState<T> =
   | { status: 'error'; message: string; code?: number; retry: () => void }
   | { status: 'ready'; data: T };
 
-/** Loads `path` and reloads when it changes. An error carries a `retry` that loads it again. */
-export function useApi<T>(path: string): ApiState<T> {
+export interface ApiOptions<T> {
+  /** Look again every this many milliseconds while the tab is visible (and `pollWhile` says to). */
+  pollMs?: number;
+  /** Polling continues only while this returns true for the data on screen. */
+  pollWhile?: (data: T) => boolean;
+}
+
+/**
+ * Loads `path` and reloads when it changes. An error carries a `retry` that loads it again.
+ * With `pollMs` it also checks again from time to time, quietly: no loading flash, and a failed
+ * check keeps what is on screen.
+ */
+export function useApi<T>(path: string, options: ApiOptions<T> = {}): ApiState<T> {
   const [state, setState] = useState<ApiState<T>>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
+  const shown = state.status === 'ready' ? state.data : null;
+  const { pollMs, pollWhile } = options;
+
+  useEffect(() => {
+    if (!pollMs || shown === null || (pollWhile && !pollWhile(shown))) return;
+    let cancelled = false;
+    const timer = setInterval(async () => {
+      if (document.hidden) return;
+      try {
+        const data = await getJson<T>(path);
+        if (!cancelled) setState((prev) => (prev.status === 'ready' && JSON.stringify(prev.data) === JSON.stringify(data) ? prev : { status: 'ready', data }));
+      } catch {
+        /* keep showing what we have; the next check may work */
+      }
+    }, pollMs);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path, shown, pollMs]);
+
   useEffect(() => {
     let cancelled = false;
     setState({ status: 'loading' });

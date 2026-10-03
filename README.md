@@ -49,6 +49,7 @@ of truth for whether it was paid. We call the **PayPal Invoicing API v2** direct
 | Send invoices | `POST /v2/invoicing/invoices` then `POST .../{id}/send` | One invoice per sibling, for exactly their share, USD, due in 10 days |
 | Never bill twice | `PayPal-Request-Id` header, and the draft's invoice id is saved *before* sending | A retry or a double click cannot create a second invoice |
 | Show who paid | `GET .../{id}` ("Refresh status") | `PAID` and `MARKED_AS_PAID` both show as paid |
+| Update by itself | **webhooks** `INVOICING.INVOICE.PAID / CANCELLED / REFUNDED / UPDATED`, signature checked with `POST /v1/notifications/verify-webhook-signature` | The status follows PayPal without a click. A forged call is rejected; a genuine one only says *which* invoice to read, and the status itself is read from PayPal |
 | Cancel an invoice | `POST .../{id}/cancel` | Withdraws it and notifies the sibling |
 | Paid some other way | `POST .../{id}/payments` (cash, bank transfer, other) | The PayPal invoice and the family's books stay in agreement |
 | Race safety | the live state is read from PayPal *before* cancelling or recording a payment | If the sibling paid a moment ago, the app refuses and updates itself instead of cancelling a paid invoice |
@@ -163,7 +164,7 @@ gcloud firestore fields ttls update expireAt --collection-group=receipts --enabl
 
 - **Sandbox only.** No real money moves, and the app will not talk to live PayPal.
 - **No login.** The "View as" switcher is a demo convenience, not a security boundary.
-- **Status needs a refresh.** The app reads PayPal's status when you press "Refresh status"; PayPal webhooks (automatic updates) are planned.
+- **Webhooks need a registration step.** The app updates a share by itself when PayPal reports a payment (a signed webhook, checked with PayPal's own signature API), but only once a webhook is registered in the PayPal app and `PAYPAL_WEBHOOK_ID` is set; "Refresh status" always works as a fallback. We have verified that a forged call is rejected by the real sandbox; a genuine signed call is confirmed only by a real payment.
 - **Buyer payment not yet watched end to end.** We verified creating, sending, reading, cancelling and settling invoices against the real sandbox, but PayPal's sandbox website was slow and our own test of a buyer paying through the invoice page did not complete. In-app Checkout and webhooks are planned.
 - **Free-tier AI quota is small.** The model chain softens this, but a busy day can exhaust it; manual entry always works.
 - **USD only, 2 to 4 people,** and the AI was tested only on English, US-style receipts.

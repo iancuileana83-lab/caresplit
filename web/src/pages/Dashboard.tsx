@@ -10,7 +10,7 @@ import { useViewAs } from '../lib/view-as';
 
 export function Dashboard() {
   const { family, viewer } = useViewAs();
-  const state = useApi<ReceiptView[]>(`/api/receipts?as=${viewer.id}`);
+  const state = useApi<ReceiptView[]>(`/api/receipts?as=${viewer.id}`, { pollMs: 15_000, pollWhile: (list) => list.some((r) => !r.sample && r.shares.some((s) => s.status === 'SENT')) });
   if (state.status === 'loading') return <LoadingNote />;
   if (state.status === 'error') return <ErrorNote message={state.message} onRetry={state.retry} />;
 

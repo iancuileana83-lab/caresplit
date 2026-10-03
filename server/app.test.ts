@@ -175,8 +175,10 @@ const newReceipt = {
 };
 
 // A PayPal stand-in that records what it was asked and can be told to fail.
-function fakePayPal(opts: { failSendFor?: string; failCancel?: boolean; failRecord?: boolean; ignoreDiscount?: boolean } = {}) {
+function fakePayPal(opts: { failSendFor?: string; failCancel?: boolean; failRecord?: boolean; ignoreDiscount?: boolean; realIds?: boolean; verify?: boolean; verifyThrows?: boolean } = {}) {
   const log: string[] = [];
+  const verifyCalls: { webhookId: string; rawBody: string; headers: Record<string, string> }[] = [];
+  const control = { failGet: false };
   /** What PayPal currently says about each invoice; tests can change it (for example to PAID). */
   const states = new Map<string, string>();
   let n = 0;
@@ -185,7 +187,8 @@ function fakePayPal(opts: { failSendFor?: string; failCancel?: boolean; failReco
       log.push(`create:${req.recipientName}:${req.amountCents}:${req.recipientEmail}`);
       log.push(`description:${req.itemDescription}`);
       log.push(`discount:${req.recipientName}:${req.discountCents ?? 0}`);
-      const id = `INV-${++n}`;
+      n += 1;
+      const id = opts.realIds ? `INV2-TEST-TEST-TEST-000${n}` : `INV-${n}`; // the real ones look like INV2-XXXX-XXXX-XXXX-XXXX
       states.set(id, 'DRAFT');
       // PayPal's total is the item price minus the item discount (unless a test makes it ignore the discount).
       const totalCents = req.amountCents - (opts.ignoreDiscount ? 0 : (req.discountCents ?? 0));
@@ -198,7 +201,13 @@ function fakePayPal(opts: { failSendFor?: string; failCancel?: boolean; failReco
     },
     async get(id: string) {
       log.push(`get:${id}`);
+      if (control.failGet) throw new PayPalError('PayPal is down', 500);
       return { id, status: states.get(id) ?? 'SENT', number: '0001', recipientViewUrl: `https://sandbox.example/${id}` };
+    },
+    async verifyWebhook(input: { webhookId: string; rawBody: string; headers: Record<string, string> }) {
+      verifyCalls.push(input);
+      if (opts.verifyThrows) throw new PayPalError('PayPal is down', 503);
+      return opts.verify ?? true;
     },
     async cancel(id: string) {
       log.push(`cancel:${id}`);
@@ -211,7 +220,7 @@ function fakePayPal(opts: { failSendFor?: string; failCancel?: boolean; failReco
       states.set(id, 'MARKED_AS_PAID');
     },
   } as unknown as PayPalClient;
-  return { client, log, states };
+  return { client, log, states, verifyCalls, control };
 }
 
 const members3 = [
@@ -491,6 +500,149 @@ async function sentReceipt(paypal: ReturnType<typeof fakePayPal>, options: Parti
   return { a, id: saved.id };
 }
 const shareOf = (r: ReceiptView, who: string) => r.shares.find((s) => s.memberId === who)!;
+
+describe('PayPal webhooks', () => {
+  const WEBHOOK_ID = 'WH-TEST-ID';
+  const BEN_INVOICE = 'INV2-TEST-TEST-TEST-0001';
+  const CLARA_INVOICE = 'INV2-TEST-TEST-TEST-0002';
+  const sig = { 'content-type': 'application/json', 'paypal-auth-algo': 'SHA256withRSA', 'paypal-cert-url': 'https://api.sandbox.paypal.com/v1/notifications/certs/C', 'paypal-transmission-id': 'tx-1', 'paypal-transmission-sig': 'c2ln', 'paypal-transmission-time': '2026-10-04T10:00:00Z' };
+  const event = (type: string, invoiceId: string) => JSON.stringify({ id: `WH-EVT-${type}`, event_type: type, resource: { invoice: { id: invoiceId } } });
+  const hook = (a: App, payload: string, headers: Record<string, string> = sig) => a.inject({ method: 'POST', url: '/api/paypal/webhook', headers, payload });
+
+  /** A receipt whose two invoices (Ben, Clara) are sent, on an app with the webhook switched on. */
+  async function setup(ppOptions: Parameters<typeof fakePayPal>[0] = {}, appOptions: Partial<AppOptions> = {}) {
+    const pp = fakePayPal({ realIds: true, ...ppOptions });
+    const { a, id } = await sentReceipt(pp, { webhookId: WEBHOOK_ID, ...appOptions });
+    const status = async (who: string) => shareOf((await get(a, `/api/receipts/${id}?as=anna`)).json() as ReceiptView, who);
+    return { pp, a, id, status };
+  }
+
+  it('updates a share by itself when PayPal says the invoice was paid, and says it was automatic', async () => {
+    const { pp, a, id, status } = await setup();
+    expect((await status('ben')).status).toBe('SENT');
+    pp.states.set(BEN_INVOICE, 'PAID'); // Ben pays on PayPal...
+    const res = await hook(a, event('INVOICING.INVOICE.PAID', BEN_INVOICE)); // ...and PayPal calls us
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true, result: 'updated' });
+    const ben = await status('ben');
+    expect(ben.status).toBe('PAID');
+    expect(ben.autoUpdatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect((await status('clara')).status).toBe('SENT'); // only Ben's share changed
+    const asBen = (await get(a, `/api/receipts/${id}?as=ben`)).json() as ReceiptView;
+    expect(asBen.shares[0]).toMatchObject({ status: 'PAID' });
+  });
+
+  it('checks the signature with the exact text received and our webhook id, before doing anything', async () => {
+    const { pp, a } = await setup();
+    // odd spacing and an accent: a re-serialised copy would differ
+    const payload = `{  "id":"WH-1",\n "event_type":"INVOICING.INVOICE.PAID", "summary":"Facturé",  "resource":{"invoice":{"id":"${BEN_INVOICE}"}} }`;
+    pp.states.set(BEN_INVOICE, 'PAID');
+    await hook(a, payload);
+    expect(pp.verifyCalls).toHaveLength(1);
+    expect(pp.verifyCalls[0].rawBody).toBe(payload);
+    expect(pp.verifyCalls[0].webhookId).toBe(WEBHOOK_ID);
+    expect(pp.verifyCalls[0].headers).toEqual({ authAlgo: 'SHA256withRSA', certUrl: sig['paypal-cert-url'], transmissionId: 'tx-1', transmissionSig: 'c2ln', transmissionTime: '2026-10-04T10:00:00Z' });
+  });
+
+  it('refuses a call whose signature PayPal does not confirm, and changes nothing', async () => {
+    const { pp, a, status } = await setup({ verify: false });
+    pp.states.set(BEN_INVOICE, 'PAID');
+    const res = await hook(a, event('INVOICING.INVOICE.PAID', BEN_INVOICE));
+    expect(res.statusCode).toBe(401);
+    expect((await status('ben')).status).toBe('SENT');
+    expect(pp.log.filter((l) => l === `get:${BEN_INVOICE}`)).toHaveLength(1); // only the one read made while sending: it never even looked
+  });
+
+  it('does not trust what the event says: the status comes from PayPal', async () => {
+    const { a, status } = await setup();
+    const lie = JSON.stringify({ id: 'WH-2', event_type: 'INVOICING.INVOICE.PAID', resource: { invoice: { id: BEN_INVOICE, status: 'PAID' } } });
+    const res = await hook(a, lie); // PayPal itself still says SENT
+    expect(res.json()).toEqual({ ok: true, result: 'unchanged' });
+    expect((await status('ben')).status).toBe('SENT');
+  });
+
+  it('is safe to receive twice, and handles cancelled and refunded invoices', async () => {
+    const { pp, a, status } = await setup();
+    pp.states.set(BEN_INVOICE, 'PAID');
+    expect((await hook(a, event('INVOICING.INVOICE.PAID', BEN_INVOICE))).json().result).toBe('updated');
+    expect((await hook(a, event('INVOICING.INVOICE.PAID', BEN_INVOICE))).json().result).toBe('unchanged'); // PayPal retries: no harm
+    pp.states.set(CLARA_INVOICE, 'CANCELLED');
+    expect((await hook(a, event('INVOICING.INVOICE.CANCELLED', CLARA_INVOICE))).json().result).toBe('updated');
+    expect((await status('clara')).status).toBe('CANCELLED');
+    pp.states.set(CLARA_INVOICE, 'REFUNDED'); // refunded counts as still open for the family
+    expect((await hook(a, event('INVOICING.INVOICE.REFUNDED', CLARA_INVOICE))).json().result).toBe('updated');
+    expect((await status('clara')).status).toBe('SENT');
+  });
+
+  it('keeps a payment recorded outside PayPal as it was', async () => {
+    const { a, id, status } = await setup();
+    await post(a, `/api/receipts/${id}/shares/ben/mark-paid?as=anna`, { method: 'CASH', note: 'lunch' });
+    const res = await hook(a, event('INVOICING.INVOICE.UPDATED', BEN_INVOICE)); // PayPal reports MARKED_AS_PAID
+    expect(res.json().result).toBe('unchanged');
+    expect(await status('ben')).toMatchObject({ status: 'PAID', paidOutside: { method: 'CASH', note: 'lunch' } });
+  });
+
+  it('acknowledges, and ignores, events it has no use for and invoices that are not its own', async () => {
+    const { pp, a } = await setup();
+    expect((await hook(a, event('INVOICING.INVOICE.CREATED', BEN_INVOICE))).json()).toEqual({ ok: true, ignored: 'event type not used' });
+    expect((await hook(a, event('PAYMENT.CAPTURE.COMPLETED', BEN_INVOICE))).statusCode).toBe(200);
+    expect((await hook(a, JSON.stringify({ id: 'WH-3', event_type: 'INVOICING.INVOICE.PAID', resource: {} }))).json()).toEqual({ ok: true, ignored: 'no invoice in the event' });
+    expect((await hook(a, event('INVOICING.INVOICE.PAID', 'INV2-ELSE-ELSE-ELSE-9999'))).json()).toEqual({ ok: true, result: 'unknown' });
+    expect(pp.log.some((l) => l.includes('ELSE'))).toBe(false); // never asked PayPal about someone else's invoice
+  });
+
+  it('asks PayPal to try again later (a 5xx) when it cannot check the signature or read the invoice', async () => {
+    const down = await setup({ verifyThrows: true });
+    expect((await hook(down.a, event('INVOICING.INVOICE.PAID', BEN_INVOICE))).statusCode).toBe(502);
+    const { pp, a, status } = await setup();
+    pp.states.set(BEN_INVOICE, 'PAID');
+    pp.control.failGet = true;
+    expect((await hook(a, event('INVOICING.INVOICE.PAID', BEN_INVOICE))).statusCode).toBe(502);
+    expect((await status('ben')).status).toBe('SENT');
+    pp.control.failGet = false;
+    expect((await hook(a, event('INVOICING.INVOICE.PAID', BEN_INVOICE))).json().result).toBe('updated'); // the retry works
+  });
+
+  it('refuses what is not a PayPal call: missing headers, a body that is not JSON, or too much data', async () => {
+    const { a } = await setup();
+    const { 'paypal-transmission-sig': _drop, ...missing } = sig;
+    expect((await hook(a, event('INVOICING.INVOICE.PAID', BEN_INVOICE), missing)).statusCode).toBe(400);
+    expect((await hook(a, 'not json')).statusCode).toBe(400);
+    expect((await hook(a, 'null')).statusCode).toBe(400);
+    expect((await hook(a, JSON.stringify({ pad: 'x'.repeat(1024 * 1024 + 10) }))).statusCode).toBe(413);
+  });
+
+  it('stays off without a webhook id or without PayPal, and is limited per caller', async () => {
+    const pp = fakePayPal({ realIds: true });
+    const noId = await app({ paypal: pp.client });
+    expect((await hook(noId, event('INVOICING.INVOICE.PAID', BEN_INVOICE))).statusCode).toBe(503);
+    const noPayPal = await app({ webhookId: WEBHOOK_ID });
+    expect((await hook(noPayPal, event('INVOICING.INVOICE.PAID', BEN_INVOICE))).statusCode).toBe(503);
+    expect(pp.verifyCalls).toHaveLength(0);
+    const limited = await app({ paypal: pp.client, webhookId: WEBHOOK_ID, webhookLimiter: () => ({ ok: false, reason: 'rate' }) });
+    expect((await hook(limited, event('INVOICING.INVOICE.PAID', BEN_INVOICE))).statusCode).toBe(429);
+    expect(pp.verifyCalls).toHaveLength(0); // an over-limit caller costs no PayPal call
+  });
+
+  it('needs no visitor id (PayPal has none) and finds the right family on its own', async () => {
+    const pp = fakePayPal({ realIds: true });
+    const store = createMemoryStore();
+    const a = await buildApp({ store, paypal: pp.client, webhookId: WEBHOOK_ID });
+    // two visitors each send a receipt; the webhook must change only the share it is about
+    const mk = async (visitor: string) => {
+      const saved = (await post(a, '/api/receipts?as=anna', newReceipt, visitor)).json() as ReceiptView;
+      await post(a, `/api/receipts/${saved.id}/send?as=anna`, undefined, visitor);
+      return saved.id;
+    };
+    const first = await mk(VISITOR);
+    const second = await mk(OTHER);
+    pp.states.set('INV2-TEST-TEST-TEST-0003', 'PAID'); // the second visitor's first invoice
+    expect((await hook(a, event('INVOICING.INVOICE.PAID', 'INV2-TEST-TEST-TEST-0003'))).json().result).toBe('updated');
+    const ben = async (id: string, visitor: string) => shareOf((await get(a, `/api/receipts/${id}?as=anna`, visitor)).json() as ReceiptView, 'ben').status;
+    expect(await ben(second, OTHER)).toBe('PAID');
+    expect(await ben(first, VISITOR)).toBe('SENT');
+  });
+});
 
 describe('cancelling an invoice', () => {
   it('withdraws one sent invoice and leaves the other alone', async () => {

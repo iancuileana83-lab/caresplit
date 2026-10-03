@@ -13,7 +13,7 @@ const selectClass = 'min-h-11 w-full rounded-xl border border-line bg-white px-3
 export function Receipts() {
   const { viewer } = useViewAs();
   const organiser = viewer.role === 'organiser';
-  const state = useApi<ReceiptView[]>(`/api/receipts?as=${viewer.id}`);
+  const state = useApi<ReceiptView[]>(`/api/receipts?as=${viewer.id}`, { pollMs: 15_000, pollWhile: (list) => list.some((r) => !r.sample && r.shares.some((s) => s.status === 'SENT')) });
   const [params, setParams] = useSearchParams();
 
   if (state.status === 'loading') return <Page><LoadingNote /></Page>;

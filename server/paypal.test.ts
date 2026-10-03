@@ -68,6 +68,40 @@ describe('createPayPalClient', () => {
     expect(JSON.parse(String(calls[2].init.body)).items[0]).not.toHaveProperty('discount');
   });
 
+  describe('verifyWebhook', () => {
+    const headers = { authAlgo: 'SHA256withRSA', certUrl: 'https://api.sandbox.paypal.com/v1/notifications/certs/C', transmissionId: 'id-1', transmissionSig: 'c2ln', transmissionTime: '2026-10-04T10:00:00Z' };
+    // spacing, key order and an accent are all things a re-serialised copy could change
+    const rawBody = '{ "id":"WH-1",  "event_type":"INVOICING.INVOICE.PAID", "summary":"Facturé", "resource":{"amount":{"value":"15.50"}} }';
+    const verifyClient = (answer: () => Response) => client((url) => (url.endsWith('/v1/oauth2/token') ? json({ access_token: 'tok', expires_in: 3600 }) : answer()));
+
+    it('sends the five headers, the webhook id and the event exactly as received', async () => {
+      const { calls, paypal } = verifyClient(() => json({ verification_status: 'SUCCESS' }));
+      expect(await paypal.verifyWebhook({ webhookId: 'WH-ID', rawBody, headers })).toBe(true);
+      const call = calls[1];
+      expect(call.url).toBe('https://api-m.sandbox.paypal.com/v1/notifications/verify-webhook-signature');
+      const text = String(call.init.body);
+      expect(text).toContain(`"webhook_event":${rawBody}}`); // byte for byte, not re-serialised
+      const parsed = JSON.parse(text);
+      expect(parsed).toMatchObject({ auth_algo: 'SHA256withRSA', cert_url: headers.certUrl, transmission_id: 'id-1', transmission_sig: 'c2ln', transmission_time: headers.transmissionTime, webhook_id: 'WH-ID' });
+      expect(parsed.webhook_event.summary).toBe('Facturé');
+    });
+
+    it('says no when PayPal does not confirm the signature', async () => {
+      expect(await verifyClient(() => json({ verification_status: 'FAILURE' })).paypal.verifyWebhook({ webhookId: 'W', rawBody, headers })).toBe(false);
+      expect(await verifyClient(() => json({ name: 'INVALID_RESOURCE_ID' }, 400)).paypal.verifyWebhook({ webhookId: 'W', rawBody, headers })).toBe(false);
+    });
+
+    it('throws, instead of saying no, when PayPal itself is down, so the call can be retried later', async () => {
+      await expect(verifyClient(() => json({ debug_id: 'dbg' }, 503)).paypal.verifyWebhook({ webhookId: 'W', rawBody, headers })).rejects.toMatchObject({ status: 503, debugId: 'dbg' });
+    });
+
+    it('does not put quotes or line breaks in a header to break the JSON it builds', async () => {
+      const { calls, paypal } = verifyClient(() => json({ verification_status: 'FAILURE' }));
+      await paypal.verifyWebhook({ webhookId: 'W"x', rawBody: '{}', headers: { ...headers, transmissionId: 'a"b\nc' } });
+      expect(JSON.parse(String(calls[1].init.body))).toMatchObject({ transmission_id: 'a"b\nc', webhook_id: 'W"x' });
+    });
+  });
+
   it('cancels an invoice and tells the recipient', async () => {
     const { calls, paypal } = client((url) => (url.endsWith('/v1/oauth2/token') ? json({ access_token: 'tok', expires_in: 3600 }) : json({})));
     await paypal.cancel('INV2-1', 'Cancelled by the organiser');

@@ -78,8 +78,8 @@ the heart of the entry. Never cut phase 10.
 | 1 | Walking skeleton: receipt → split → PayPal invoice → status | done, live on Cloud Run (Oct 3) |
 | 2 | Complete core: family rules, receipts list, solid errors, demo data | built and **live** (Oct 3, Cloud Run revision `caresplit-00004-pxj`; the 7-day TTL policy on `expireAt` is created for `families` and `receipts`): a private demo family per visitor with sample history and "Reset demo"; an editable family (2 to 4 members, sandbox accounts from a list, equal or percentage split, per-receipt override); receipt filters with totals; cancel an invoice and mark a share as paid outside PayPal; friendly errors and empty states. 128 automated tests, 26 live checks. **Step 2d "Care credit" level 1 is built (not deployed yet)** |
 | 3 | First submission package (submit early) | planned |
-| 4 | Pay your share in the app (Checkout, Orders API) | planned |
-| 5 | PayPal webhooks: automatic status | planned |
+| 4 | Pay your share in the app (Checkout, Orders API) | planned, after the real-payment test of the webhooks |
+| 5 | PayPal webhooks: automatic status | built and committed, done first (ahead of 4); waits for the owner to register the webhook in PayPal and for the deploy |
 | 6 | AI chat assistant over the family's data | planned |
 | 7 | AI checks: duplicates, high amounts, late payers | planned |
 | 8 | AI-written payment reminders | planned |
@@ -393,6 +393,25 @@ this phase is upside, not risk.
 - Popup blockers and mobile browsers with the PayPal buttons.
 
 ### 5. PayPal webhooks — automatic status (≈ 6–8 h)
+
+**Built (done first, before Checkout; not deployed yet).** `POST /api/paypal/webhook` receives PayPal's
+invoice events (paid, cancelled, refunded, updated). Order of work on each call: switch off with 503 unless
+a webhook id is configured; a per-caller limit (each call costs a PayPal check); read the five signature
+headers; ask PayPal's `verify-webhook-signature` API whether the call is genuine, sending the event **byte for
+byte as received** (re-serialising could change what PayPal signed), and answer 401 if not; then, for a
+handled event, find our share from the invoice id and **read the invoice's real status from PayPal** (the
+event only says where to look, so a replayed, repeated or reordered event can never set a wrong status).
+Our own payments recorded outside PayPal are kept. A temporary PayPal problem answers 502 so PayPal retries
+(it retries for days). Unknown invoices and unused event types answer 200 and are ignored. The invoice id to
+share lookup is a small top-level Firestore collection `invoices` (looked up by document id, so no index),
+carrying `expireAt` like everything else; the receipt page shows "Updated automatically by PayPal at ...", and
+the receipt, receipts and dashboard screens check again every 10 to 15 s while an invoice is unpaid, so a
+payment shows up on screen without a click. Tested: 179 automated tests (a fake PayPal for the full
+paths, including a forged call, a retried event, an event that lies, PayPal down, a bad body, an oversized body,
+two families); and against the **real sandbox**: a forged call is answered 401 because PayPal does not confirm it.
+Still to do with the owner: create the webhook in the PayPal app, set `PAYPAL_WEBHOOK_ID`, a TTL policy for
+the `invoices` collection, deploy, then a real payment as Ben (the only test that proves PayPal's real signed
+call is accepted).
 
 **Delivers**
 - A public webhook endpoint on Cloud Run, registered in the sandbox app, for invoice paid,

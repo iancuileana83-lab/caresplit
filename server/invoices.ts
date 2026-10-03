@@ -4,7 +4,7 @@ import { formatUsd } from '../shared/money';
 import { formatPercent } from '../shared/split';
 import type { Member } from '../shared/types';
 import { mapInvoiceStatus, type OutsideMethod, type PayPalClient } from './paypal';
-import type { ReceiptStore, StoredReceipt, StoredShare } from './store';
+import type { ReceiptStore, Store, StoredReceipt, StoredShare } from './store';
 
 export interface SendFailure {
   memberId: string;
@@ -16,6 +16,8 @@ export interface InvoiceDeps {
   paypal: PayPalClient;
   members: Member[];
   emailOf: (memberId: string) => string | undefined;
+  /** Called once a share has its PayPal invoice, so a later webhook call can find the share again. */
+  rememberInvoice?: (invoiceId: string, receiptId: string, memberId: string) => Promise<void>;
 }
 
 // One send at a time per receipt (double clicks, two browser tabs on the same server).
@@ -86,6 +88,7 @@ export function sendInvoices(receiptId: string, deps: InvoiceDeps): Promise<{ re
           share.invoiceId = draft.id;
           share.invoiceNumber = draft.number;
           await deps.store.save(receipt); // remember the draft before anything else can go wrong
+          await deps.rememberInvoice?.(draft.id, receipt.id, share.memberId); // and where to find it when PayPal calls back
         }
         await deps.paypal.send(share.invoiceId);
         const info = await deps.paypal.get(share.invoiceId);
@@ -154,6 +157,31 @@ export function markPaidOutside(receiptId: string, memberId: string, input: { me
     share.paidOutside = { method: input.method, ...(input.note ? { note: input.note } : {}), at: now.toISOString() };
     await deps.store.save(receipt);
     return receipt;
+  });
+}
+
+/**
+ * A PayPal webhook said something happened to this invoice. The event only tells us where to look: the
+ * truth is read from PayPal itself, so a repeated, late or out-of-order event can never set a wrong status.
+ * Returns what happened: 'updated', 'unchanged', or 'unknown' (an invoice that is not one of ours).
+ */
+export async function syncInvoiceFromWebhook(invoiceId: string, store: Store, paypal: PayPalClient, now = new Date()): Promise<'updated' | 'unchanged' | 'unknown'> {
+  const ref = await store.findInvoice(invoiceId);
+  if (!ref) return 'unknown';
+  return exclusive(ref.receiptId, async () => {
+    const receipts = store.receipts(ref.familyId);
+    const receipt = await receipts.get(ref.receiptId);
+    const share = receipt?.shares.find((s) => s.memberId === ref.memberId && s.invoiceId === invoiceId);
+    if (!receipt || !share) return 'unknown';
+    const info = await paypal.get(invoiceId);
+    const status = mapInvoiceStatus(info.status);
+    if (status === share.status) return 'unchanged';
+    share.status = status;
+    share.statusSource = 'webhook';
+    share.statusUpdatedAt = now.toISOString();
+    share.invoiceUrl = info.recipientViewUrl ?? share.invoiceUrl;
+    await receipts.save(receipt);
+    return 'updated';
   });
 }
 

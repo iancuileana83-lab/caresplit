@@ -39,6 +39,16 @@ export interface StoredShare {
   sentAt?: string;
   /** Set when the organiser recorded that this share was paid outside PayPal. */
   paidOutside?: { method: 'CASH' | 'BANK_TRANSFER' | 'OTHER'; note?: string; at: string };
+  /** Set when a PayPal webhook (not a click on "Refresh status") last changed this share's status. */
+  statusSource?: 'webhook';
+  statusUpdatedAt?: string;
+}
+
+/** Where to find a share from its PayPal invoice id, so a webhook call can be matched to the right receipt. */
+export interface InvoiceRef {
+  familyId: string;
+  receiptId: string;
+  memberId: MemberId;
 }
 
 export interface StoredReceipt {
@@ -81,6 +91,9 @@ export interface Store {
   receipts(familyId: string): ReceiptStore;
   /** Deletes every receipt of the family (used by "Reset demo"). */
   deleteReceipts(familyId: string): Promise<void>;
+  /** Remembers which share a PayPal invoice belongs to. `expireAt` lets the note disappear with the family. */
+  rememberInvoice(invoiceId: string, ref: InvoiceRef, expireAt?: string): Promise<void>;
+  findInvoice(invoiceId: string): Promise<InvoiceRef | undefined>;
 }
 
 export function sortNewestFirst(receipts: StoredReceipt[]): StoredReceipt[] {
@@ -90,6 +103,7 @@ export function sortNewestFirst(receipts: StoredReceipt[]): StoredReceipt[] {
 export function createMemoryStore(): Store {
   const families = new Map<string, StoredFamily>();
   const receipts = new Map<string, Map<string, StoredReceipt>>();
+  const invoices = new Map<string, InvoiceRef>();
   const of = (familyId: string) => {
     let m = receipts.get(familyId);
     if (!m) receipts.set(familyId, (m = new Map()));
@@ -119,6 +133,13 @@ export function createMemoryStore(): Store {
     },
     async deleteReceipts(familyId) {
       receipts.delete(familyId);
+    },
+    async rememberInvoice(invoiceId, ref) {
+      invoices.set(invoiceId, { ...ref });
+    },
+    async findInvoice(invoiceId) {
+      const ref = invoices.get(invoiceId);
+      return ref ? { ...ref } : undefined;
     },
   };
 }

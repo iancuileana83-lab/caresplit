@@ -51,6 +51,17 @@ export function createFirestoreStore({ projectId, databaseId = 'caresplit' }: Fi
         },
       };
     },
+    // A small top-level collection: invoice id -> where the share lives. Looked up by document id, so it
+    // needs no index. Like everything else it carries `expireAt` and is deleted by the TTL policy.
+    async rememberInvoice(invoiceId, ref, expireAt) {
+      await db.collection('invoices').doc(invoiceId).set(toDoc({ ...ref, expireAt }));
+    },
+    async findInvoice(invoiceId) {
+      const snap = await db.collection('invoices').doc(invoiceId).get();
+      if (!snap.exists) return undefined;
+      const d = snap.data()!;
+      return { familyId: d.familyId, receiptId: d.receiptId, memberId: d.memberId };
+    },
     async deleteReceipts(familyId) {
       const snap = await receiptsOf(familyId).limit(500).get();
       const batch = db.batch();
