@@ -15,7 +15,8 @@ export function createFirestoreStore({ projectId, databaseId = 'caresplit', fami
   const col = db.collection('families').doc(familyId).collection('receipts');
   return {
     async list() {
-      const snap = await col.get();
+      // The 200 newest receipts are plenty for a family, and keep one request small.
+      const snap = await col.orderBy('date', 'desc').limit(200).get();
       return sortNewestFirst(snap.docs.map((d) => d.data() as StoredReceipt));
     },
     async get(id) {

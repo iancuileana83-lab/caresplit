@@ -2,6 +2,8 @@
 .env.*
 .git
 node_modules
+dist
 spikes
 demo
 *.md
+server.mjs

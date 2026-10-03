@@ -212,6 +212,25 @@ describe('saving and sending receipts', () => {
     expect((res.json() as { receipt: ReceiptView }).receipt.shares.map((s) => s.status)).toEqual(['PAID', 'PAID']);
   });
 
+  it('limits how many receipts one visitor can save', async () => {
+    const a = await app({ writeLimiter: () => ({ ok: false, reason: 'daily' }) });
+    const res = await a.inject({ method: 'POST', url: '/api/receipts?as=anna', payload: newReceipt });
+    expect(res.statusCode).toBe(429);
+    expect((await a.inject({ method: 'GET', url: '/api/receipts?as=anna' })).json()).toHaveLength(3); // nothing was saved
+  });
+
+  it('judges visitors by the address Google adds, not by a header they send themselves', async () => {
+    const seen: string[] = [];
+    const a = await app({ writeLimiter: (ip) => (seen.push(ip), { ok: true }) });
+    await a.inject({
+      method: 'POST',
+      url: '/api/receipts?as=anna',
+      payload: newReceipt,
+      headers: { 'x-forwarded-for': '6.6.6.6, 203.0.113.9' }, // the first is faked by the visitor, the last is added by the proxy
+    });
+    expect(seen).toEqual(['203.0.113.9']);
+  });
+
   it('applies the PayPal limiter', async () => {
     const { client, log } = fakePayPal();
     const a = await app({ paypal: client, paypalLimiter: () => ({ ok: false, reason: 'rate' }) });

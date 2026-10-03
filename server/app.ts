@@ -25,6 +25,8 @@ export interface AppOptions {
   limiter?: (ip: string) => LimitResult;
   /** Called once per send or refresh request with the visitor's address. */
   paypalLimiter?: (ip: string) => LimitResult;
+  /** Called once per "save receipt" request, so nobody can fill the database with junk. */
+  writeLimiter?: (ip: string) => LimitResult;
 }
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -32,9 +34,11 @@ const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const limitMessage = (limit: Extract<LimitResult, { ok: false }>, what: string) =>
   limit.reason === 'daily' ? `The demo has reached its daily limit for ${what}. Try again tomorrow.` : `Too many requests in a short time. Wait a minute and try again.`;
 
-export async function buildApp({ store, staticDir, reader, paypal, limiter, paypalLimiter }: AppOptions) {
-  // Behind Cloud Run the real visitor address is in X-Forwarded-For.
-  const app = Fastify({ logger: false, trustProxy: true });
+export async function buildApp({ store, staticDir, reader, paypal, limiter, paypalLimiter, writeLimiter }: AppOptions) {
+  // Behind Cloud Run the real visitor address is the last entry of X-Forwarded-For (added by
+  // Google's front end). Trust exactly one proxy, so a visitor cannot dodge the rate limits by
+  // sending their own X-Forwarded-For header.
+  const app = Fastify({ logger: false, trustProxy: (_address, hop) => hop < 1 });
 
   // The receipt photo arrives as the raw request body (image/jpeg, image/png, ...).
   app.addContentTypeParser(/^image\/(jpeg|png|webp|heic|heif)$/, { parseAs: 'buffer', bodyLimit: MAX_IMAGE_BYTES }, (_req, body, done) => done(null, body));
@@ -75,6 +79,8 @@ export async function buildApp({ store, staticDir, reader, paypal, limiter, payp
     if (viewer.role !== 'organiser') return reply.code(403).send({ error: 'Only the organiser can add receipts' });
     const parsed = parseNewReceipt(req.body);
     if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
+    const limit = writeLimiter?.(req.ip) ?? { ok: true as const };
+    if (!limit.ok) return reply.code(429).send({ error: limitMessage(limit, 'saving receipts'), code: limit.reason });
 
     const input = parsed.value;
     const parts = splitEqual(input.totalCents, family.members.map((m) => m.id), viewer.id);

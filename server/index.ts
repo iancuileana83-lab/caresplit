@@ -27,6 +27,7 @@ const app = await buildApp({
   reader: readerFromEnv(process.env),
   limiter: limiterFromEnv(process.env),
   paypalLimiter: createLimiter({ perIpPerMinute: Number(process.env.PAYPAL_LIMIT_PER_MINUTE) || 12, perDay: Number(process.env.PAYPAL_LIMIT_PER_DAY) || 400 }),
+  writeLimiter: createLimiter({ perIpPerMinute: Number(process.env.WRITE_LIMIT_PER_MINUTE) || 20, perDay: Number(process.env.WRITE_LIMIT_PER_DAY) || 300 }),
 });
 await app.listen({ port, host: '0.0.0.0' });
 console.log(`CareSplit server listening on http://localhost:${port}`);
