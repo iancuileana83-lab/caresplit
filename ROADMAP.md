@@ -75,7 +75,7 @@ the heart of the entry. Never cut phase 10.
 | # | Phase | Status |
 |---|-------|--------|
 | 0 | Setup and spikes | next |
-| 1 | Walking skeleton: receipt → split → PayPal invoice → status | planned |
+| 1 | Walking skeleton: receipt → split → PayPal invoice → status | in progress (step 1 done: app shell with demo data, View as switcher, equal-split maths with tests; next: receipt upload and Gemini reading) |
 | 2 | Complete core: family rules, receipts list, solid errors, demo data | planned |
 | 3 | First submission package (submit early) | planned |
 | 4 | Pay your share in the app (Checkout, Orders API) | planned |
