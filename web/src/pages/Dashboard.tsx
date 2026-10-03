@@ -11,7 +11,7 @@ export function Dashboard() {
   const { viewer } = useViewAs();
   const state = useApi<ReceiptView[]>(`/api/receipts?as=${viewer.id}`);
   if (state.status === 'loading') return <LoadingNote />;
-  if (state.status === 'error') return <ErrorNote message={state.message} />;
+  if (state.status === 'error') return <ErrorNote message={state.message} onRetry={state.retry} />;
 
   const receipts = state.data;
   const { openCents, paidCents } = sumShares(receipts);
@@ -42,9 +42,11 @@ export function Dashboard() {
       <section>
         <div className="mb-2 flex items-baseline justify-between">
           <h2 className="text-sm font-semibold">{organiser ? 'Recent receipts' : 'Your shares'}</h2>
-          <Link to="/receipts" className="text-sm text-teal-700 underline-offset-2 hover:underline">
-            See all
-          </Link>
+          {receipts.length > 0 && (
+            <Link to="/receipts" className="text-sm text-teal-700 underline-offset-2 hover:underline">
+              See all
+            </Link>
+          )}
         </div>
         <ReceiptList receipts={receipts.slice(0, 3)} viewer={viewer} />
       </section>

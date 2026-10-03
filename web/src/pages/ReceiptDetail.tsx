@@ -1,4 +1,4 @@
-import { ArrowLeft, Ban, Banknote, CircleAlert, CircleCheck, ExternalLink, LoaderCircle, RefreshCw, Send } from 'lucide-react';
+import { ArrowLeft, Ban, Banknote, CircleAlert, CircleCheck, ExternalLink, LoaderCircle, RefreshCw, SearchX, Send } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { formatPercent } from '../../../shared/split';
@@ -6,6 +6,7 @@ import type { ReceiptView, Share } from '../../../shared/types';
 import { Card, ErrorNote, LoadingNote } from '../components/Card';
 import { ShareChip } from '../components/Chip';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { EmptyState } from '../components/EmptyState';
 import { ApiError, getJson, postJson, useApi } from '../lib/api';
 import { formatLongDate, formatUsd } from '../lib/receipts';
 import { useViewAs } from '../lib/view-as';
@@ -128,7 +129,17 @@ export function ReceiptDetail() {
       </Link>
 
       {!receipt && state.status === 'loading' && <LoadingNote />}
-      {!receipt && state.status === 'error' && <ErrorNote message="We couldn't find that receipt" />}
+      {!receipt &&
+        state.status === 'error' &&
+        (state.code === 404 ? (
+          <Card>
+            <EmptyState icon={SearchX} title="We couldn't find that receipt" action={{ to: '/receipts', label: 'See all receipts' }}>
+              It may be for someone else, or it was removed when the demo was reset.
+            </EmptyState>
+          </Card>
+        ) : (
+          <ErrorNote message={state.message} onRetry={state.retry} />
+        ))}
       {receipt && (
         <>
           <section>

@@ -54,7 +54,11 @@ export async function putJson<T>(path: string, body: unknown): Promise<T> {
   return data as T;
 }
 
-export type ApiState<T> = { status: 'loading' } | { status: 'error'; message: string; retry: () => void } | { status: 'ready'; data: T };
+export type ApiState<T> =
+  | { status: 'loading' }
+  /** `code` is the HTTP status when the server answered (404 means "not there"), and absent when it could not be reached. */
+  | { status: 'error'; message: string; code?: number; retry: () => void }
+  | { status: 'ready'; data: T };
 
 /** Loads `path` and reloads when it changes. An error carries a `retry` that loads it again. */
 export function useApi<T>(path: string): ApiState<T> {
@@ -66,7 +70,13 @@ export function useApi<T>(path: string): ApiState<T> {
     getJson<T>(path).then(
       (data) => !cancelled && setState({ status: 'ready', data }),
       (err: unknown) =>
-        !cancelled && setState({ status: 'error', message: err instanceof Error ? err.message : 'Something went wrong', retry: () => setAttempt((n) => n + 1) }),
+        !cancelled &&
+        setState({
+          status: 'error',
+          message: err instanceof Error ? err.message : 'Something went wrong',
+          code: err instanceof ApiError && err.status > 0 ? err.status : undefined,
+          retry: () => setAttempt((n) => n + 1),
+        }),
     );
     return () => {
       cancelled = true;

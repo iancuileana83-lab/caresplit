@@ -1,4 +1,7 @@
+import { Compass } from 'lucide-react';
 import { Route, Routes } from 'react-router-dom';
+import { Card } from './components/Card';
+import { EmptyState } from './components/EmptyState';
 import { Layout } from './components/Layout';
 import { AddReceipt } from './pages/AddReceipt';
 import { Dashboard } from './pages/Dashboard';
@@ -6,6 +9,16 @@ import { Family } from './pages/Family';
 import { ReceiptDetail } from './pages/ReceiptDetail';
 import { Receipts } from './pages/Receipts';
 import { SplitPreview } from './pages/SplitPreview';
+
+function NotFound() {
+  return (
+    <Card>
+      <EmptyState icon={Compass} title="That page doesn't exist" action={{ to: '/', label: 'Go to the start' }}>
+        The link may be old or mistyped.
+      </EmptyState>
+    </Card>
+  );
+}
 
 export function App() {
   return (
@@ -17,7 +30,7 @@ export function App() {
         <Route path="add" element={<AddReceipt />} />
         <Route path="add/split" element={<SplitPreview />} />
         <Route path="family" element={<Family />} />
-        <Route path="*" element={<p className="py-8 text-center text-quiet">That page doesn't exist.</p>} />
+        <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
   );

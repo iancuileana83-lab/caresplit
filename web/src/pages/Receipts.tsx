@@ -1,5 +1,5 @@
-import { Camera, FilterX } from 'lucide-react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { FilterX } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import type { ReceiptView } from '../../../shared/types';
 import { ErrorNote, LoadingNote, Metric } from '../components/Card';
 import { ReceiptList } from '../components/ReceiptList';
@@ -103,12 +103,6 @@ export function Receipts() {
         }
       />
 
-      {all.length === 0 && organiser && (
-        <Link to="/add" className="flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-teal-700 px-4 text-[15px] font-medium text-white hover:bg-teal-800">
-          <Camera size={20} aria-hidden="true" />
-          Add receipt
-        </Link>
-      )}
     </Page>
   );
 }

@@ -1,21 +1,27 @@
-import { ExternalLink } from 'lucide-react';
+import { CircleCheck, ExternalLink, Receipt } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import type { Member, ReceiptView } from '../../../shared/types';
 import { formatDate, formatUsd, receiptSummary } from '../lib/receipts';
 import { Card } from './Card';
 import { Chip, ShareChip } from './Chip';
+import { EmptyState } from './EmptyState';
 
 /** Receipts as `viewer` may see them: the organiser sees totals, a sibling sees only their share. */
 export function ReceiptList({ receipts, viewer, empty }: { receipts: ReceiptView[]; viewer: Member; empty?: ReactNode }) {
   if (receipts.length === 0) {
     return (
       <Card>
-        {empty ?? (
-          <p className="py-6 text-center text-quiet">
-            {viewer.role === 'organiser' ? 'No receipts yet. Add the first one to start splitting.' : 'Nothing to pay yet. Invoices show up here when the organiser sends them.'}
-          </p>
-        )}
+        {empty ??
+          (viewer.role === 'organiser' ? (
+            <EmptyState icon={Receipt} title="Start your first receipt" action={{ to: '/add', label: 'Add receipt' }}>
+              Photograph a pharmacy receipt and CareSplit splits it and sends each sibling an invoice.
+            </EmptyState>
+          ) : (
+            <EmptyState icon={CircleCheck} title="Nothing to pay yet">
+              When the organiser sends you an invoice, it shows up here.
+            </EmptyState>
+          ))}
       </Card>
     );
   }

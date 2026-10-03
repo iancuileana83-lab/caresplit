@@ -42,9 +42,12 @@ export function ViewAsProvider({ children }: { children: ReactNode }) {
   }
   if (familyState.status === 'error') {
     return (
-      <p className="p-8 text-center text-red-700" role="alert">
-        Couldn't load your family: {familyState.message} Reload the page to try again.
-      </p>
+      <div role="alert" className="mx-auto max-w-md space-y-3 p-8 text-center">
+        <p className="text-red-700">Couldn't load your family. {familyState.message.replace(/[.!]?$/, '.')}</p>
+        <button type="button" onClick={familyState.retry} className="min-h-11 rounded-xl border border-line bg-white px-4 text-sm font-medium hover:bg-stone-50">
+          Try again
+        </button>
+      </div>
     );
   }
 
