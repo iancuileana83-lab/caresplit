@@ -27,8 +27,10 @@ export interface ImageInput {
   mimeType: string;
 }
 
-// Tried in this order. Each model has its own quota and its own busy periods.
-export const DEFAULT_MODELS = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash'];
+// Tried in this order. Each model has its own quota (the free tier gives only a few requests per
+// day per model) and its own busy periods. The lite model is first: it read all six demo receipts
+// correctly in about 1.4 s; the bigger models are the fallback.
+export const DEFAULT_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash'];
 
 const PROMPT = `You read a pharmacy receipt and return amounts and dates only.
 Rules:

@@ -147,6 +147,13 @@ the heart of the entry. Never cut phase 10.
   user can always enter a receipt by hand. Still open: the free-tier quota is small, so the public
   demo needs the per-visitor and daily limits (built, `READ_LIMIT_*`) and possibly a paid-tier key
   for judging week; check the real quota in AI Studio before November.
+  **Quota finding (Oct 3, deploy day):** the free tier has a small *daily* quota per model
+  (`GenerateRequestsPerDayPerProjectPerModel-FreeTier`); a day of testing used up
+  `gemini-3.8-flash`, `3.7-flash` and `3.6-flash`, and the live app answered "busy" until the
+  quota resets. `gemini-3.5-flash-lite` has its own quota, read all six demo receipts correctly in
+  about 1.4 s, and is now first in the chain. The 300/day app limit means little when a model's
+  own free quota is far smaller: for judging week check the real per-model quotas in AI Studio
+  and consider billing on the Gemini key or project (cost is cents at this size).
   Still open: image size limits. Decide the
   fallback if the key is rate limited during judging (cached sample result for the demo receipts).
 - **Official rules:** confirm eligibility, whether specific PayPal APIs are required, and exact
