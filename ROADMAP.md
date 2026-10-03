@@ -117,7 +117,9 @@ the heart of the entry. Never cut phase 10.
 - **Cloud Run needs:** billing and APIs (Cloud Run, Artifact Registry, Firestore, Secret Manager)
   enabled on `core-invention-cvz43`; permission to deploy from GitHub Actions (workload identity
   or a service-account key kept in GitHub secrets, never in the repo).
-- **Gemini:** exact current model name, free-tier rate limits, image size limits. Decide the
+- **Gemini:** *(spike done Oct 3: `gemini-3.8-flash` reads the fictional receipt correctly in
+  about 6 s; `gemini-2.5-flash` is closed to new keys even though the model list still shows it,
+  so do not trust the list.)* Still open: free-tier rate limits, image size limits. Decide the
   fallback if the key is rate limited during judging (cached sample result for the demo receipts).
 - **Official rules:** confirm eligibility, whether specific PayPal APIs are required, and exact
   submission fields.
