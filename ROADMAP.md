@@ -74,9 +74,9 @@ the heart of the entry. Never cut phase 10.
 
 | # | Phase | Status |
 |---|-------|--------|
-| 0 | Setup and spikes | next |
-| 1 | Walking skeleton: receipt → split → PayPal invoice → status | in progress (done: app shell with demo data, View as switcher, equal-split maths; receipt upload, Gemini reading, editable Review screen with the "Amounts add up" check, split preview. receipts saved through a store (memory, or Firestore when `DATA_STORE=firestore`), real PayPal sandbox invoices sent after a confirmation, "Refresh status". Next: check the Firestore store against the real database, then deploy) |
-| 2 | Complete core: family rules, receipts list, solid errors, demo data | planned |
+| 0 | Setup and spikes | done (the Orders/Checkout spike moves to the start of phase 4) |
+| 1 | Walking skeleton: receipt → split → PayPal invoice → status | done, live on Cloud Run (Oct 3) |
+| 2 | Complete core: family rules, receipts list, solid errors, demo data | next |
 | 3 | First submission package (submit early) | planned |
 | 4 | Pay your share in the app (Checkout, Orders API) | planned |
 | 5 | PayPal webhooks: automatic status | planned |
@@ -178,7 +178,22 @@ The thinnest complete path, hosted and working: one hard-coded family of fiction
   touch targets; English UI. Logo: the word "CareSplit" with two overlapping circles in two
   teals (dark `#0F766E`, light `#5EEAD4`), no orange or yellow, so it does not look like a
   payment-card brand.
-- Data saved in Firestore. Deployed to Cloud Run through GitHub Actions.
+- Data saved in Firestore. Deployed to Cloud Run by hand (decided against GitHub Actions: the
+  manual deploy is three commands and avoids setting up GitHub-to-Google identity).
+
+**Built (finished Oct 3)** — live at https://caresplit-30747896454.europe-west4.run.app. React +
+Vite + Tailwind front end and a Fastify server in one Cloud Run container; receipts in the
+Firestore database `caresplit` (family `rowan`), secrets in Secret Manager, service account
+`caresplit-run`. Flow: photo or built-in fictional sample → Gemini reading (lite model first, three
+larger fallbacks, retries) → editable Review screen with the live "Amounts add up" check → equal
+split (the organiser absorbs the odd cents) → confirmation dialog → one PayPal sandbox invoice per
+sibling, each step saved so a retry or double click never makes a second invoice → receipt page with
+invoice links and "Refresh status" (PayPal `MARKED_AS_PAID` counts as paid). Safety: photos are never
+stored, a demo warning on Add receipt, per-visitor limits (read, write, PayPal) and per-day caps,
+proxy-aware client address, sandbox only. 62 automated tests. Verified on the live link: reading,
+saving, sending two invoices and refreshing. Known limits, all planned: no per-visitor data
+(everyone shares the Rowan family: phase 2), no login, the "View as" switcher is not a security
+boundary, free-tier Gemini quota is small (see the quota finding above).
 
 **Tested by**
 - Unit tests: the split maths (cents, rounding so shares always add up to the total), the
