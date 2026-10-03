@@ -80,7 +80,7 @@ the heart of the entry. Never cut phase 10.
 | 3 | First submission package (submit early) | planned |
 | 4 | Pay your share in the app (Checkout, Orders API) | planned, after the real-payment test of the webhooks |
 | 5 | PayPal webhooks: automatic status | done and live (revision `caresplit-00006-vcd`): a payment recorded in PayPal updated the app by itself within about 30 s; a buyer's payment on Ben's invoice is still to try |
-| 6 | AI chat assistant over the family's data, with confirmed actions | in progress (plan decided Oct 4: own tools + Gemini function calling; optional PayPal Agent Toolkit step only if it works cleanly in the sandbox) |
+| 6 | AI chat assistant over the family's data, with confirmed actions | built and verified locally Oct 4 (own tools + Gemini function calling); waiting for the TTL policy and deploy OK; optional PayPal Agent Toolkit step only if it works cleanly in the sandbox |
 | 7 | AI checks: duplicates, high amounts, late payers | planned |
 | 8 | AI-written payment reminders | planned |
 | 9 | Monthly family report, downloadable | planned |
@@ -492,7 +492,11 @@ models add almost nothing. That is probably enough for judging, but not with a m
 testing eats it too. Paid tier cost is small (roughly a tenth of a cent per message at lite prices, so a few dollars even for
 thousands of messages; prices to be checked). Suggested decision point: after the chat works and before the video (about Oct 25):
 enable billing for the Gemini key if daily use is above about 40 % of the quota. A per-day counter of our own Gemini requests will
-be shown in the logs to measure it.
+be shown in the logs to measure it (each request logs `assistant_gemini_request` with the model name only).
+*Measured Oct 4 (local, real Gemini, `gemini-3.5-flash-lite` answered everything):* 5 questions used 12 requests, so about
+2.4 requests per message (plain refusal 1, a tool question 2, finding a receipt then proposing 3 to 4). At that rate 500 lite
+requests a day are about 200 messages a day, in line with the estimate above. Built so far: tools, model client, chat loop,
+endpoints, the Assistant tab (all tested, 246 tests); still to do: TTL and deploy (owner's OK), live checks on Cloud Run.
 
 **Delivers**
 - A chat panel: "How much did each of us pay in September?", "Who still owes something?",

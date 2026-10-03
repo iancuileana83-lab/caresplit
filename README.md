@@ -53,6 +53,7 @@ of truth for whether it was paid. We call the **PayPal Invoicing API v2** direct
 | Cancel an invoice | `POST .../{id}/cancel` | Withdraws it and notifies the sibling |
 | Paid some other way | `POST .../{id}/payments` (cash, bank transfer, other) | The PayPal invoice and the family's books stay in agreement |
 | Race safety | the live state is read from PayPal *before* cancelling or recording a payment | If the sibling paid a moment ago, the app refuses and updates itself instead of cancelling a paid invoice |
+| Remind | `POST .../{id}/remind` | A polite reminder (amounts and dates only) that PayPal emails to the sibling; at most one per share per day |
 | Care credit | an item-level `discount` on the caregiver's invoice, and a check of the total PayPal calculates | The credit is visible on the invoice itself, and an invoice whose total differs from the share is never sent |
 
 Safety around PayPal: sandbox only (the app refuses to talk to live PayPal), invoices can only go to a
@@ -65,6 +66,7 @@ in Google Secret Manager and never in the code or the image, and sending is limi
 - **Trust, but verify.** The AI's numbers are never accepted blindly: the app re-checks the arithmetic (in whole cents) and the human confirms every receipt before anything is sent.
 - **Resilient by design.** The server tries `gemini-3.5-flash-lite` first (about 1.4 s) and falls back to `gemini-3.8-flash`, `3.7-flash` and `3.6-flash`. A temporary overload (503) is retried, an exhausted quota (429) moves on to the next model, and if everything fails the user can type the receipt in by hand.
 - **Private by construction.** The photo lives only in the server's memory for the length of one request. It is never written to disk, to the database or to a log.
+- **Assistant (organiser only).** A chat tab answers questions about the family's receipts, who owes what and care credit, using Gemini **function calling** with our own tools. The numbers come from code, not from the model. It can also *propose* a reminder, a payment note (cash, bank transfer, other), a cancellation or sending the unsent invoices: the proposal becomes a card with **Confirm** and **Dismiss**, and nothing happens until the organiser presses Confirm (the model has no way to press it). The server re-checks the real state, runs the action once, and the card expires after 5 minutes. Tools take no family id and never see PayPal invoice ids; pharmacy and item names reach the model as short cleaned data with a standing instruction never to follow them, so even a fooled model could only produce a card a person must still confirm. Medical questions are refused.
 - **Checked.** All six demo receipts (simple, 12 items, discounts, tax, a tilted and grainy "phone photo", non-medicine items) are read correctly; a script (`demo/verify-reading.mjs`) compares the answers with the values printed on them.
 
 ## Architecture
@@ -173,9 +175,8 @@ gcloud firestore fields ttls update expireAt --collection-group=receipts --enabl
 ## What is next
 
 A care log that suggests the care credit from hours given (level 2 of the care credit, see `ROADMAP.md`), paying a share inside the app
-with PayPal Checkout (Orders API), PayPal webhooks, an AI assistant that answers questions about the family's spending
-(and later acts through PayPal's agent tools, always with confirmation), checks for duplicate or unusual receipts, polite
-AI-written reminders, and a downloadable monthly report. The full phased plan is in [ROADMAP.md](ROADMAP.md).
+with PayPal Checkout (Orders API), running the assistant's actions through PayPal's agent tools (always behind our own scoping and
+confirmation), checks for duplicate or unusual receipts, and a downloadable monthly report. The full phased plan is in [ROADMAP.md](ROADMAP.md).
 
 ## Built with Claude Code
 
