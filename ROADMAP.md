@@ -76,7 +76,7 @@ the heart of the entry. Never cut phase 10.
 |---|-------|--------|
 | 0 | Setup and spikes | done (the Orders/Checkout spike moves to the start of phase 4) |
 | 1 | Walking skeleton: receipt → split → PayPal invoice → status | done, live on Cloud Run (Oct 3) |
-| 2 | Complete core: family rules, receipts list, solid errors, demo data | built, waiting for the owner's OK to deploy (and to turn on the 7-day TTL policy): a private demo family per visitor with sample history and "Reset demo"; an editable family (2 to 4 members, sandbox accounts from a list, equal or percentage split, per-receipt override); receipt filters with totals; cancel an invoice and mark a share as paid outside PayPal; friendly errors and empty states. 128 automated tests |
+| 2 | Complete core: family rules, receipts list, solid errors, demo data | built and **live** (Oct 3, Cloud Run revision `caresplit-00004-pxj`; the 7-day TTL policy on `expireAt` is created for `families` and `receipts`): a private demo family per visitor with sample history and "Reset demo"; an editable family (2 to 4 members, sandbox accounts from a list, equal or percentage split, per-receipt override); receipt filters with totals; cancel an invoice and mark a share as paid outside PayPal; friendly errors and empty states. 128 automated tests, 26 live checks. **New idea, not built: step 2d "Care credit"** |
 | 3 | First submission package (submit early) | planned |
 | 4 | Pay your share in the app (Checkout, Orders API) | planned |
 | 5 | PayPal webhooks: automatic status | planned |
@@ -283,6 +283,42 @@ receipt, missing page) and with component tests in a simulated browser (`jsdom`)
 automation with Playwright (it needs a browser download); the same flows were exercised by hand and
 by the server and component tests instead.
 
+**Deployed (Oct 3):** image `caresplit:phase2`, revision `caresplit-00004-pxj`, same settings as
+before (Firestore, secrets, limits, at most 2 instances). The Firestore TTL policy was turned on for
+the collection groups `families` and `receipts` (field `expireAt`, 7 days); it shows `CREATING` first and
+becomes active within minutes, and Firestore deletes expired documents within about a day. Checked on
+the live link with two made-up visitors (26 checks, no invoices sent): each visitor has their own family,
+nobody sees anyone else's receipts, editing and reset work, no address leaves the server, one live Gemini
+reading answered in 1.4 s. The test families were deleted afterwards. Other services untouched.
+
+**Step 2d, idea added Oct 3 — "Care credit" (not built; for the Innovation criterion).**
+*Why:* money is not the only contribution. A sibling who makes the pharmacy runs, goes to appointments
+and spends time with the parent gives time, and the family may agree that this sibling pays a smaller
+part. Care credit turns that agreement into a visible, fair rule instead of an awkward conversation.
+*Level 1, "care credit %" (build first, about 6–8 h):* in the Family screen the organiser picks the
+main caregiver and a credit percentage c (for example 25 %). The caregiver pays their normal share
+times (1 − c); the part released is shared between the others in proportion to their normal shares.
+It produces an ordinary percentage rule in basis points, so the existing split, rounding (the organiser
+absorbs odd cents) and invoice code are reused. Example: three people, equal shares of 33.33 %; Ben's
+credit is 25 %, so Ben pays 25.00 % and Anna and Clara pay 37.50 % each.
+*Level 2, "care log" (later, about 6 h):* members log care (date, kind such as pharmacy run, appointment or
+time together, minutes); the family sets a symbolic value per hour. For a period, each person's credit is
+hours times that value, and the split makes everyone reach the same level L of money plus time:
+money owed by person i is max(0, L − credit_i), with L chosen so that the money owed adds up to the costs.
+The app suggests the percentages and the organiser confirms them.
+*What each person sees:* the organiser sees a "Care credit" card on Family (caregiver, credit, preview of
+the effective split) and on Split & send a line such as "Care credit −$3.89 for Ben" with a switch
+"Apply care credit to this receipt" (on by default); the dashboard gets a "Care credit this period" card.
+The caregiver sees a thank-you with the credit; a sibling sees only their own share, and the care
+agreement itself is visible to everyone on Family, so it stays transparent.
+*On the PayPal invoice:* the item is the normal share and carries an item-level discount for the credit
+(PayPal invoice items support a discount; verify in the sandbox), with the description saying "includes
+a $X care credit for time spent helping".
+*Risks:* amounts and time only, no health information or claims; time is self-reported, so keep it a
+family agreement, visible to all, not an accounting system; cap c so no share goes below zero.
+*Tested by:* unit tests for the effective rule and the level-L maths, rule and invoice text tests, and the
+usual live check.
+
 **Tested by**
 - Unit tests for custom percentages (sum 100, rounding, one member at 0 %).
 - Playwright flows: set up a family, upload a sample receipt, send invoices, see statuses.
@@ -469,6 +505,30 @@ this phase is upside, not risk.
   seeded data so the app is explorable even if PayPal is slow.
 - Gemini quota exhausted: demo receipts fall back to cached sample extractions.
 - Feature creep. Anything not on this list after November 1 is written in "Future work".
+
+## Ideas parked for later phases
+
+**An AI assistant that acts through PayPal's own tools, always with confirmation (idea added Oct 3;
+a later phase, after the chat assistant of phase 6 and the reminders of phase 8).** Today the chat
+assistant of phase 6 only answers questions. This idea lets the family ask in plain words, for example
+"invoice Ben and Clara for the September 28 receipt and remind whoever is late", and have the assistant
+do it through PayPal's official Agent Toolkit / MCP server instead of our own invoice code.
+- *What exists (checked Oct 3 by a quick search, to verify properly before building):* PayPal publishes an
+  Agent Toolkit (`@paypal/agent-toolkit`, TypeScript and Python) and an MCP server (`@paypal/mcp`, plus
+  hosted endpoints for the sandbox and for production). Its invoicing tools include create, list and get
+  an invoice, send it, send a reminder and cancel a sent invoice; it has a sandbox mode.
+- *Rules for us:* sandbox only; the assistant never sends, cancels or reminds on its own: it first shows
+  the exact action (who, how much, which receipt) and waits for the organiser's "Confirm" (the toolkit
+  does not ask for confirmation by itself, so the confirmation step is ours); only the family's own
+  receipts and members are reachable; every action is written to a visible log; text on a receipt is data,
+  never instructions to the assistant (prompt injection); the same per-visitor and daily limits apply.
+- *To verify first:* how the toolkit authenticates (a short-lived access token from our client ID and
+  secret), that the sandbox endpoint covers invoicing end to end, and whether invoices it creates carry
+  the same status and links our own code reads. Our own PayPal client stays the source of truth for the app
+  screens; the assistant is an additional way to trigger the same actions.
+- *Why it helps the entry:* it makes PayPal central in a second, visible way (not only our code calling
+  the API, but an AI agent using PayPal's agent tools) and shows responsible agent design (human in the
+  loop, scoped tools, audit log). Cut it first if time is short; the demo works without it.
 
 ## Open decisions to settle in Phase 0
 
