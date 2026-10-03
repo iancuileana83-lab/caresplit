@@ -1,0 +1,25 @@
+﻿# Secrets and local config - never commit
+.env
+.env.*
+!.env.example
+
+# Dependencies and build output
+node_modules/
+dist/
+build/
+coverage/
+.vite/
+
+# Cloud and tooling
+*.pem
+*.key
+service-account*.json
+.firebase/
+.gcloud/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log

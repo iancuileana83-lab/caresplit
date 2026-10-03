@@ -1,0 +1,363 @@
+# CareSplit — Roadmap
+
+Entry for the **PayPal AI Hackathon** on Devpost. Deadline **November 12, 2026, 22:00 Romania time**.
+Work started October 3, 2026 — about 40 days, at 1–2 hours a day (roughly 50–60 working hours in total).
+
+**CareSplit** helps siblings share the pharmacy costs of an elderly parent. Photograph a
+pharmacy receipt, AI reads the items, amounts and date, the app splits the total by the
+family's rule, sends each sibling a PayPal invoice for their share and shows who has paid.
+
+> Read this file at the start of every work session. Update the phase status table after
+> each finished phase, in the same commit as the phase.
+
+## Hackathon requirements and where we meet them
+
+| Requirement | How CareSplit meets it | Phase |
+|---|---|---|
+| PayPal central and meaningfully used | Invoicing API (one invoice per sibling), Orders/Checkout (pay in the app), webhooks (automatic status) | 1, 4, 5 |
+| AI meaningfully used | Gemini reads receipts (vision, structured output); later: chat over the family's data, anomaly checks, reminders, report text | 1, 6, 7, 8, 9 |
+| Working hosted demo | Google Cloud Run, project `core-invention-cvz43`, region `europe-west4`; pre-seeded demo family so judges need no setup | 0, 1 |
+| Public GitHub repo, source, run instructions, visible open-source license | Public repo, MIT `LICENSE` at the root, README with run and deploy steps | 0, 3 |
+| Public YouTube demo video under 3 minutes | Script written early, recorded twice (core version, final version) | 3, 10 |
+| Description of the tools and how each was used | Devpost text plus a "How it is built" section in the README, kept current each phase | 3, 10 |
+
+Re-read the official Devpost rules and judging criteria in Phase 0; if they differ from the
+list above, this table wins over memory and the roadmap is corrected.
+
+## Fixed constraints (every phase)
+
+- **Amounts and dates only.** No medical advice, no treatment claims, no health data. The
+  receipt prompt asks for merchant, date, items (name and amount) and totals only; patient
+  names, prescriptions and doses are ignored and never stored. The chat assistant refuses
+  medical questions.
+- **Fictional demo data only.** All receipts are invented by us (generated images of made-up
+  pharmacies), all family members are fictional, PayPal accounts are sandbox accounts.
+- **English UI.**
+- **Secrets never in the repo.** PayPal client ID and secret, PayPal webhook ID and the Gemini
+  key live in a local `.env` (git-ignored from the first commit). The repo has `.env.example`
+  with empty values. On Cloud Run the same values come from Secret Manager, not from the code
+  or the container image. Check `git log -p` for leaks before the repo goes public.
+- **Cloud Run:** project `core-invention-cvz43`, region `europe-west4`.
+- **Every phase ends deployed and submittable** (from Phase 1 on): the app works end to end,
+  the README is correct, the live demo is up. No phase leaves `main` broken.
+- **Abuse protection on the public demo:** a daily cap on Gemini calls and a rate limit per IP,
+  so a visitor cannot burn the key.
+
+## Proposed stack (small, boring, quick to ship)
+
+- TypeScript end to end. Node 20 + a small server (Fastify or Express) for the API and the PayPal
+  and Gemini calls (keys stay on the server).
+- A light front end: React + Vite, mobile-first (the receipt photo comes from a phone camera).
+- **Firestore** (same GCP project) for data. Cloud Run containers are stateless, so SQLite on
+  disk would be lost at every deploy and restart.
+- Gemini via the Google AI Studio API with a JSON response schema (exact model name checked in
+  Phase 0). PayPal REST APIs in the sandbox, called directly with `fetch` (no unmaintained SDKs).
+- Tests: Vitest for logic and API wrappers, a few Playwright runs for the main flows.
+- GitHub Actions: typecheck, tests, then deploy to Cloud Run on `main`.
+
+## Calendar
+
+| Dates | Phases |
+|---|---|
+| Oct 3 – Oct 8 | 0 Setup and spikes |
+| Oct 9 – Oct 18 | 1 Walking skeleton, 2 Complete core |
+| Oct 19 – Oct 21 | 3 First submission (submit early, edit later) |
+| Oct 22 – Nov 1 | 4 Checkout, 5 Webhooks, 6 Chat assistant |
+| Nov 2 – Nov 6 | 7 AI checks, 8 Reminders, 9 Monthly report (cut first if late) |
+| Nov 7 – Nov 11 | 10 Final polish, video, submission |
+| Nov 12 | Buffer only. Submit by Nov 11 at the latest. |
+
+Cut order if time runs out: report (9), then reminders (8), then checks (7). Phases 1–6 and 10 are
+the heart of the entry. Never cut phase 10.
+
+## Phase status
+
+| # | Phase | Status |
+|---|-------|--------|
+| 0 | Setup and spikes | next |
+| 1 | Walking skeleton: receipt → split → PayPal invoice → status | planned |
+| 2 | Complete core: family rules, receipts list, solid errors, demo data | planned |
+| 3 | First submission package (submit early) | planned |
+| 4 | Pay your share in the app (Checkout, Orders API) | planned |
+| 5 | PayPal webhooks: automatic status | planned |
+| 6 | AI chat assistant over the family's data | planned |
+| 7 | AI checks: duplicates, high amounts, late payers | planned |
+| 8 | AI-written payment reminders | planned |
+| 9 | Monthly family report, downloadable | planned |
+| 10 | Final polish, final video, final submission | planned |
+
+## Phases
+
+### 0. Setup and spikes (≈ 6–8 h) — not submittable yet, by design
+
+**Delivers**
+- Folder `caresplit`, git repo, public GitHub repo, MIT `LICENSE`, `.gitignore` (with `.env`
+  first), `.env.example`, a short README stub.
+- Empty app that deploys to Cloud Run and shows a "hello" page at a public URL.
+- Three proven spikes, as small scripts kept in `spikes/`:
+  1. **PayPal Invoicing**: create a draft invoice, send it, read its status, in the sandbox.
+  2. **Gemini receipt reading**: one made-up receipt image in, structured JSON out (merchant,
+     date, items, subtotal, tax, total).
+  3. **PayPal Orders**: create an order and capture it with a sandbox buyer.
+- PayPal sandbox set up: one Business (merchant) account and 3–4 Personal (sibling) accounts.
+- A set of 5–6 invented receipt images (different layouts, one blurry, one duplicate, one with a
+  very high amount) for tests and the demo.
+
+**Tested by**
+- Each spike run once end to end, output saved in the notes. Hello page reachable from a phone.
+- `git log -p` and `git grep` show no secret anywhere.
+
+**Risks and open questions**
+- **Invoicing in the sandbox:** does a sandbox invoice send a real email, or must the recipient be
+  a sandbox account? Where does a sibling see and pay it (sandbox invoice link)? Which fields are
+  required (invoicer email, recipient email, currency, invoice number)?
+- **Sandbox invoice payment:** can a sandbox Personal account pay an invoice through the link,
+  or must payment be simulated (Invoicing "record payment" API)? This decides how phase 1 shows
+  "paid" in the demo.
+- **Cloud Run needs:** billing and APIs (Cloud Run, Artifact Registry, Firestore, Secret Manager)
+  enabled on `core-invention-cvz43`; permission to deploy from GitHub Actions (workload identity
+  or a service-account key kept in GitHub secrets, never in the repo).
+- **Gemini:** exact current model name, free-tier rate limits, image size limits. Decide the
+  fallback if the key is rate limited during judging (cached sample result for the demo receipts).
+- **Official rules:** confirm eligibility, whether specific PayPal APIs are required, and exact
+  submission fields.
+
+### 1. Walking skeleton (≈ 10–12 h)
+
+The thinnest complete path, hosted and working: one hard-coded family of fictional siblings.
+
+**Delivers**
+- Upload or photograph a receipt → Gemini extracts merchant, date, items, amounts → the user
+  sees and can correct the result before confirming.
+- Equal split between the family members → one PayPal sandbox invoice per sibling is created and
+  sent (the payer, who paid at the pharmacy, receives no invoice).
+- Receipt page showing each sibling's share and invoice status (Draft / Sent / Paid), refreshed
+  by a "Refresh status" button that reads the Invoicing API.
+- Data saved in Firestore. Deployed to Cloud Run through GitHub Actions.
+
+**Tested by**
+- Unit tests: the split maths (cents, rounding so shares always add up to the total), the
+  Gemini response parser (valid, missing fields, garbage).
+- An integration test against the sandbox: create and send an invoice, read its status.
+- Manual run on a phone with two made-up receipts, from photo to "paid" in the sandbox.
+
+**Risks and open questions**
+- Receipt reading errors (wrong total, currency, date format). Mitigation: always show the
+  extracted data for confirmation and check that the item amounts add up to the total.
+- Rounding: 3 siblings and an amount in cents. The odd cent goes to a deterministic person.
+- Currency: use one currency (EUR or USD) for the whole demo; decide in phase 0 against what the
+  sandbox accounts support.
+- A sandbox invoice failing halfway through a batch (2 of 3 sent). Needs a retry that does not
+  create duplicates (store the invoice ID per share).
+
+### 2. Complete core (≈ 10–12 h)
+
+**Delivers**
+- **Family setup:** members (name, sandbox PayPal email), who is the organiser who usually pays,
+  and the split rule: equal, or custom percentages that must add up to 100 %. The rule can be
+  changed per receipt before sending.
+- **Receipts list** with filters (month, status), and a receipt detail page with its invoices.
+- **Demo mode:** a "Sign in as Anna / Ben / Clara" switcher with a pre-seeded fictional family
+  and history, plus a "Reset demo" button. No real accounts or passwords. The family is a
+  separate Firestore document per visitor session so judges do not disturb each other.
+- Solid errors and empty states (unreadable photo, Gemini down, PayPal error), cancel or void an
+  invoice, mark a share as "paid outside PayPal" with a note.
+- Mobile-first, accessible UI (labels, contrast, keyboard use), clear "amounts only, no medical
+  advice" notice.
+
+**Tested by**
+- Unit tests for custom percentages (sum 100, rounding, one member at 0 %).
+- Playwright flows: set up a family, upload a sample receipt, send invoices, see statuses.
+- Failure drills: wrong PayPal secret, Gemini timeout, blurry receipt.
+
+**Risks and open questions**
+- Auth and multi-user: demo mode keeps this simple on purpose. Real login is out of scope; say
+  so in the README.
+- Per-session data isolation and cleanup (Firestore TTL or a cleanup job) so the database does
+  not fill up after the hackathon.
+- Judges and sandbox: how a judge pays a sandbox invoice (see phase 0). The testing instructions
+  on Devpost will include fictional sandbox buyer logins, which are not secrets but must be
+  clearly marked sandbox only.
+
+### 3. First submission package (≈ 4–5 h)
+
+Submit a complete, honest entry early. It can be edited until the deadline, so everything after
+this phase is upside, not risk.
+
+**Delivers**
+- README: what it is, screenshots, architecture diagram, run locally, deploy to Cloud Run,
+  environment variables, how each tool is used (PayPal Invoicing, Gemini, Cloud Run, Firestore).
+- Demo video (under 3 minutes) uploaded to YouTube as public: problem, receipt photo, AI reading,
+  split, invoices, paid status.
+- Devpost entry filled in and submitted: description, tools, testing instructions, links.
+
+**Tested by**
+- A checklist run in a private window with no login: demo URL opens, a sample receipt goes through,
+  repo is public, license visible on the repo page, video plays logged out, length under 3:00.
+- A fresh clone follows the README and runs locally with a new `.env`.
+
+**Risks and open questions**
+- Video length and clarity (script and rehearse; no live narration surprises).
+- Devpost wording about what is real: say plainly that PayPal runs in the sandbox and the data
+  is fictional.
+
+### 4. Pay your share in the app — PayPal Checkout, Orders API (≈ 8–10 h)
+
+**Delivers**
+- A **Pay now** button next to each of the signed-in sibling's open shares, using the PayPal
+  JS SDK buttons with server-side create and capture through the Orders API.
+- Capturing an order marks the share paid at once and also settles the matching invoice so the
+  sibling is not asked to pay twice.
+- Receipt detail shows the PayPal transaction ID and capture time.
+
+**Tested by**
+- Server tests for create/capture with mocked PayPal responses (including declined, cancelled,
+  already captured, amount mismatch).
+- Sandbox run: a sibling pays through the popup; the share, the invoice and the list all show
+  paid. A second click on a paid share does nothing.
+
+**Risks and open questions**
+- **Invoice versus order for the same share.** Options: record the Checkout payment on the invoice
+  (Invoicing "record payment") or cancel the invoice. Decide in this phase after trying both in
+  the sandbox. Danger: double payment.
+- The amount is always read from the server, never from the browser (anti-tamper).
+- The merchant account that receives the money must be the organiser's sandbox business account.
+- Popup blockers and mobile browsers with the PayPal buttons.
+
+### 5. PayPal webhooks — automatic status (≈ 6–8 h)
+
+**Delivers**
+- A public webhook endpoint on Cloud Run, registered in the sandbox app, for invoice paid,
+  cancelled and refunded events and for payment capture completed.
+- Signature verification with PayPal's verify-webhook-signature API, an idempotency record so a
+  repeated event is applied once, and an event log page (for the demo and for debugging).
+- The UI updates by itself (live listener on Firestore or short polling); the Refresh button stays
+  as a fallback and as a safety net for missed events.
+
+**Tested by**
+- Unit tests: valid, invalid-signature and duplicate events; out-of-order events.
+- Sandbox: pay an invoice with a sandbox buyer and watch the status change with no click. Also
+  the PayPal Webhooks Simulator for event shapes that are hard to trigger.
+
+**Risks and open questions**
+- **Sandbox webhook reliability and delay:** events can arrive late or not at all; keep the
+  Refresh/reconcile path and say so in the README.
+- The simulator sends events with fake IDs that fail real verification; use real sandbox
+  payments for the signature test.
+- Which invoice events are delivered in the sandbox and with what payload; confirm in practice.
+- Local development needs a public URL (a tunnel) or just test against the Cloud Run revision.
+- Cloud Run scale-to-zero cold start versus PayPal's webhook timeout; set min instances to 1
+  only for the demo period if needed (cost note).
+
+### 6. AI chat assistant over the family's data (≈ 8–10 h)
+
+**Delivers**
+- A chat panel: "How much did each of us pay in September?", "Who still owes something?",
+  "What was our biggest receipt?".
+- Built with Gemini function calling over a small set of safe, read-only tools that query
+  Firestore (totals by member and month, open shares, receipt search). The model gets the tool
+  results, not the raw database, and always shows the figures it used.
+- Scoped to the signed-in family only. Refuses medical questions and anything outside the
+  family's own amounts and dates.
+
+**Tested by**
+- A fixed set of 20 questions with expected answers on the demo data (numbers checked against a
+  plain SQL-style computation in a test, not by eye).
+- Refusal tests (medical advice, other families' data, prompt injection inside a receipt item
+  name such as "ignore your rules").
+
+**Risks and open questions**
+- Wrong arithmetic from the model: the tools return exact totals, the model only phrases them.
+- Prompt injection through receipt text: item names are passed as data and never as instructions.
+- Cost and rate limits of the public demo (per-session message cap).
+- Time zones for "in September" (use the family's stored time zone).
+
+### 7. AI checks — duplicates, high amounts, late payers (≈ 6–8 h)
+
+**Delivers**
+- **Duplicate receipt** warning on upload: same merchant, date and total, or a near-identical
+  receipt (rule-based match first, Gemini only for the borderline cases).
+- **Unusually high amount** flag compared with the family's history for that merchant or overall
+  (simple statistics, with Gemini writing the one-sentence explanation).
+- **Repeatedly late payer** insight: shares paid late or still open past the due date, shown to
+  the organiser as a neutral note, never as a shaming label.
+- A review inbox listing flags, each dismissible.
+
+**Tested by**
+- Unit tests with the demo set (duplicate receipt, one outlier, one chronic late payer) and with
+  data that must not flag (new merchant with few records, one late payment only).
+- Playwright: upload the duplicate receipt and see the warning before invoices go out.
+
+**Risks and open questions**
+- False positives annoy users: conservative thresholds, always dismissible, always explainable.
+- Tone: wording is factual ("paid 6 days after the due date on 3 of the last 4 receipts").
+- A flagged duplicate must never block sending without an explicit override.
+
+### 8. AI-written payment reminders (≈ 5–6 h)
+
+**Delivers**
+- A **Draft reminder** button on an open share: Gemini writes a short, polite, warm message
+  using only amount, receipt date, due date and the organiser's chosen tone (friendly, neutral).
+- The organiser edits and approves it; it goes out through the invoice reminder in PayPal
+  (Invoicing remind API) with the text as the note, or is copied if the API does not allow it.
+- A reminder history per share. Nothing is ever sent without the organiser pressing send.
+
+**Tested by**
+- Output checks: contains the right amount and date, no medical content, under a length limit,
+  English only. Playwright flow from draft to sent.
+- Sandbox: the invoice shows the reminder.
+
+**Risks and open questions**
+- Does the sandbox Invoicing remind endpoint accept a custom note and actually deliver it?
+- The model inventing details: the prompt gets structured facts only and the result is validated
+  against them.
+
+### 9. Monthly family report (≈ 5–6 h)
+
+**Delivers**
+- A report page and a **Download PDF** for any month: total spent, share per member, paid versus
+  open, top receipts, comparison with the previous month, and a short AI-written summary that
+  restates only the computed figures.
+- Optional: a CSV export of the month for accounting.
+
+**Tested by**
+- The numbers in the report are checked against the same functions the chat assistant uses.
+- PDF opens correctly on a phone and on desktop; empty-month case; a month with a cancelled
+  invoice.
+
+**Risks and open questions**
+- PDF generation on Cloud Run (headless Chrome is heavy; prefer a light PDF library).
+- Fonts and non-ASCII characters in the PDF.
+
+### 10. Final polish, final video and submission (≈ 8–10 h)
+
+**Delivers**
+- Feature freeze on **November 1** for phases 4–6 and **November 6** for the rest. After that only
+  fixes.
+- Performance and safety pass: input limits (image size and type), rate limits, error pages,
+  secret scan of the full git history, dependency audit, Cloud Run limits and a cost cap.
+- A scripted, rehearsed demo path and a re-recorded video, under 3 minutes, showing the whole
+  loop: receipt photo → AI → split → invoices → in-app payment → webhook update → chat question →
+  a flag or a report. Upload as public to YouTube.
+- Updated README, architecture diagram, Devpost text and testing instructions. Final submission
+  on **November 11**, with November 12 only as a safety buffer.
+
+**Tested by**
+- The phase 3 checklist again on the live URL in a private window, on a phone and a desktop.
+- A cold deploy from a fresh clone. Judge walkthrough by a second person if possible.
+
+**Risks and open questions**
+- Sandbox outage or slow responses on demo day: keep a recorded video as the primary proof and
+  seeded data so the app is explorable even if PayPal is slow.
+- Gemini quota exhausted: demo receipts fall back to cached sample extractions.
+- Feature creep. Anything not on this list after November 1 is written in "Future work".
+
+## Open decisions to settle in Phase 0
+
+1. Currency for the demo (EUR or USD).
+2. Firestore versus another store (default: Firestore).
+3. License (default: MIT).
+4. Whether sandbox buyer logins go in the public README and the Devpost testing instructions
+   (default: yes, clearly marked sandbox only).
+5. Whether the receipt images used for the demo are generated by us as images (default: yes,
+   invented pharmacies and items, no real patient or pharmacy data).
