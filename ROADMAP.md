@@ -155,6 +155,14 @@ The thinnest complete path, hosted and working: one hard-coded family of fiction
   sent (the payer, who paid at the pharmacy, receives no invoice).
 - Receipt page showing each sibling's share and invoice status (Draft / Sent / Paid), refreshed
   by a "Refresh status" button that reads the Invoicing API.
+- A **"View as: Anna / Ben / Clara"** switcher (useful for the video). Anna, the organiser, sees
+  everything. Ben and Clara see only their own share to pay and the link to their invoice.
+  In phase 1 it is a plain switch with no login; real per-user data isolation stays phase 2.
+- Look and feel (approved): React + Vite + TypeScript, Tailwind, mobile first; warm cream
+  background, teal `#0F766E` as the main colour, amber for "Sent", green for "Paid", big
+  touch targets; English UI. Logo: the word "CareSplit" with two overlapping circles in two
+  teals (dark `#0F766E`, light `#5EEAD4`), no orange or yellow, so it does not look like a
+  payment-card brand.
 - Data saved in Firestore. Deployed to Cloud Run through GitHub Actions.
 
 **Tested by**
