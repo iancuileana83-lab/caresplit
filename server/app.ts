@@ -138,6 +138,8 @@ export async function buildApp({ store, staticDir, reader, paypal, limiter, payp
     const limit = limiter?.(req.ip) ?? { ok: true as const };
     if (!limit.ok) return reply.code(429).send({ error: limitMessage(limit, 'reading receipts'), code: limit.reason });
 
+    // The photo lives only in this request's memory and is sent to Gemini. It is never written to
+    // disk, to Firestore or to a log: only the numbers and text that were read are kept.
     try {
       return await reader({ data: image, mimeType: String(req.headers['content-type']) });
     } catch (err) {

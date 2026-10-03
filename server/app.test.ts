@@ -57,6 +57,21 @@ describe('POST /api/receipts/read', () => {
     expect(res.json()).toEqual(reading);
   });
 
+  it('does not keep the photo: only the reading can end up in the store', async () => {
+    const store = createMemoryStore();
+    const a = await buildApp({ store, reader: async () => reading });
+    const photo = Buffer.from('PHOTO-BYTES-MARKER-12345');
+    const read = await post(a, 'anna', photo);
+    expect(read.statusCode).toBe(200);
+    // Saving what was read, as the browser does after the user confirms it.
+    const saved = await a.inject({ method: 'POST', url: '/api/receipts?as=anna', payload: { ...reading, totalCents: 100 } });
+    expect(saved.statusCode).toBe(201);
+    const everything = JSON.stringify(await store.list());
+    expect(everything).not.toContain('PHOTO-BYTES-MARKER');
+    expect(everything).not.toContain(photo.toString('base64'));
+    expect(JSON.stringify(read.json())).not.toContain('PHOTO-BYTES-MARKER');
+  });
+
   it('refuses siblings, unsupported types and empty bodies', async () => {
     const a = await app({ reader: async () => reading });
     expect((await post(a, 'ben')).statusCode).toBe(403);

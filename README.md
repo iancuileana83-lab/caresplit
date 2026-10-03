@@ -41,6 +41,19 @@ not). Reading receipts needs `GEMINI_API_KEY` (a free key from
 https://aistudio.google.com/apikey); without it you can still type a receipt in by hand. With the
 server running, `node demo/verify-reading.mjs` checks the six sample receipts against their known values.
 
+## Privacy and data
+
+- The demo is for **fictional receipts only**: the Add receipt screen asks to use the built-in
+  samples or an invented receipt, never a real one.
+- A receipt photo is held in the server's memory only long enough to send it to the Gemini API.
+  It is never written to disk, to the database or to a log; only the text and amounts that were
+  read (and that the user confirmed) are saved. Because the photo does go to Gemini, do not upload
+  real receipts, and note that Google's terms for the free Gemini API tier allow it to use inputs to
+  improve its products.
+- No medical advice is given and no health information is kept: the reading is asked to ignore
+  patient names, prescriptions and doses.
+- PayPal runs in the **sandbox** only; the app refuses to start talking to live PayPal.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).

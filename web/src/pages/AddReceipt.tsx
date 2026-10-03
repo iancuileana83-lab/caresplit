@@ -1,4 +1,4 @@
-import { Camera, LoaderCircle, PenLine, RotateCcw } from 'lucide-react';
+import { Camera, Info, LoaderCircle, PenLine, RotateCcw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card } from '../components/Card';
@@ -95,6 +95,11 @@ export function AddReceipt() {
         <h1 className="text-2xl font-semibold tracking-tight">{phase.name === 'review' ? 'Review receipt' : 'Add receipt'}</h1>
       </div>
       <Steps current={phase.name === 'review' ? 2 : 1} />
+
+      <div role="note" className="flex gap-2 rounded-xl bg-amber-100 px-3 py-2.5 text-sm text-amber-900">
+        <Info size={18} className="mt-0.5 shrink-0" aria-hidden="true" />
+        Demo: please use the sample receipts or a fictional receipt, not a real one.
+      </div>
 
       {phase.name === 'choose' && (
         <>
