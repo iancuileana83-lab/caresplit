@@ -5,7 +5,11 @@ import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { careCreditRule, validateCareCredit } from '../shared/care';
 import { splitByRule, validateRule, type SplitRule } from '../shared/split';
-import type { FamilyView, Member } from '../shared/types';
+import type { AssistantAction, AssistantReply, FamilyView, Member } from '../shared/types';
+import { confirmAction, dismissAction, type ActionContext } from './assistant/actions';
+import { runChat, type ChatTurn } from './assistant/chat';
+import { ChatError, type ChatModel } from './assistant/model';
+import { cleanText } from './text';
 import { accountEmail, sandboxAccounts } from './demo-data';
 import { parseFamilyUpdate } from './family-validate';
 import { getOrCreateFamily, resetFamily, VISITOR_ID } from './families';
@@ -13,7 +17,7 @@ import { ReadError, type ReceiptReader } from './gemini';
 import { cancelInvoice, markPaidOutside, refreshStatuses, sendInvoices, ShareActionError, syncInvoiceFromWebhook, type InvoiceDeps } from './invoices';
 import type { LimitResult } from './limits';
 import { PayPalError, type PayPalClient } from './paypal';
-import type { ReceiptStore, Store, StoredFamily, StoredReceipt } from './store';
+import type { PendingAction, ReceiptStore, Store, StoredFamily, StoredReceipt } from './store';
 import { parseMarkPaid, parseNewReceipt } from './validate';
 import { HANDLED_EVENTS, invoiceIdFromEvent, webhookHeaders } from './webhook';
 import { organiserView, viewOf, viewsFor } from './views';
@@ -34,6 +38,10 @@ export interface AppOptions {
   writeLimiter?: (ip: string) => LimitResult;
   /** Called when a brand-new visitor family would be created, with the visitor's address. */
   familyLimiter?: (ip: string) => LimitResult;
+  /** The assistant's AI model. Missing means "not set up" and the chat answers 503. */
+  chat?: ChatModel;
+  /** Called once per chat message: every message costs Gemini quota. */
+  chatLimiter?: (ip: string) => LimitResult;
   /** The id PayPal gave our webhook. Without it the webhook endpoint stays off (503). */
   webhookId?: string;
   /** Called once per webhook call with the caller's address (each call costs a PayPal signature check). */
@@ -55,7 +63,34 @@ const publicFamily = (f: StoredFamily): FamilyView => ({
   accounts: sandboxAccounts.map((a) => ({ id: a.id, label: a.label })), // labels only: the addresses stay on the server
 });
 
-export async function buildApp({ store, staticDir, reader, paypal, limiter, paypalLimiter, writeLimiter, familyLimiter, webhookId, webhookLimiter }: AppOptions) {
+const toActionView = (a: PendingAction, now = Date.now()): AssistantAction => ({
+  id: a.id,
+  kind: a.kind,
+  title: a.title,
+  lines: a.lines,
+  // a card nobody confirmed in time shows as expired, even before anyone touches it
+  status: a.status === 'pending' && Date.parse(a.confirmBy) <= now ? 'expired' : a.status,
+  confirmBy: a.confirmBy,
+  ...(a.result ? { result: a.result } : {}),
+});
+
+const MAX_CHAT_MESSAGES = 50;
+const MAX_CHAT_RAW_CHARS = 2000;
+
+function parseChatBody(body: unknown): ChatTurn[] | undefined {
+  const messages = (body as { messages?: unknown } | null)?.messages;
+  if (!Array.isArray(messages) || messages.length === 0 || messages.length > MAX_CHAT_MESSAGES) return undefined;
+  const turns: ChatTurn[] = [];
+  for (const m of messages) {
+    const { role, text } = (m ?? {}) as { role?: unknown; text?: unknown };
+    if ((role !== 'user' && role !== 'assistant') || typeof text !== 'string' || text.length > MAX_CHAT_RAW_CHARS) return undefined;
+    turns.push({ role, text });
+  }
+  const last = turns[turns.length - 1];
+  return last.role === 'user' && cleanText(last.text, 500) ? turns : undefined;
+}
+
+export async function buildApp({ store, staticDir, reader, paypal, limiter, paypalLimiter, writeLimiter, familyLimiter, chat, chatLimiter, webhookId, webhookLimiter }: AppOptions) {
   // Behind Cloud Run the real visitor address is the last entry of X-Forwarded-For (added by
   // Google's front end). Trust exactly one proxy, so a visitor cannot dodge the rate limits by
   // sending their own X-Forwarded-For header.
@@ -327,6 +362,78 @@ export async function buildApp({ store, staticDir, reader, paypal, limiter, payp
     const { receipt, failed } = await refreshStatuses(id, invoiceDeps(c, paypal));
     return { receipt: organiserView(receipt), failed };
   });
+
+  // ---- The assistant. Organiser only. The model can read the family's receipts and PROPOSE actions; a proposal is
+  // only a card. Nothing runs until the organiser presses Confirm, which is the confirm endpoint below.
+  const actionContext = (c: Context): ActionContext => ({ store, family: c.family, receipts: c.receipts });
+
+  app.post('/api/assistant/chat', async (req, reply) => {
+    const c = await contextOf(req, reply);
+    if (!c) return;
+    if (c.viewer.role !== 'organiser') return reply.code(403).send({ error: 'Only the organiser can use the assistant' });
+    if (!chat) return reply.code(503).send({ error: 'The assistant is not set up on this server', code: 'not_configured' });
+    const history = parseChatBody(req.body);
+    if (!history) return reply.code(400).send({ error: 'Send {messages: [...]} ending with a message from you' });
+    const limit = chatLimiter?.(req.ip) ?? { ok: true as const };
+    if (!limit.ok) return reply.code(429).send({ error: limitMessage(limit, 'assistant questions'), code: limit.reason });
+
+    const refresh = paypal
+      ? async (receiptId: string) => {
+          const existing = await c.receipts.get(receiptId);
+          if (!existing) return "I can't find that receipt in this family.";
+          if (existing.sample) return 'That is a sample receipt: it has no invoices to check.';
+          const allowed = paypalLimiter?.(req.ip) ?? { ok: true as const };
+          if (!allowed.ok) return limitMessage(allowed, 'checking invoices');
+          const { failed } = await refreshStatuses(receiptId, invoiceDeps(c, paypal));
+          return failed.length === 0 ? 'Statuses refreshed from PayPal.' : `Refreshed, but ${failed.length} invoice${failed.length === 1 ? '' : 's'} could not be read.`;
+        }
+      : undefined;
+
+    try {
+      const out = await runChat({ model: chat, tools: { family: c.family, receipts: c.receipts, today: new Date().toISOString().slice(0, 10), action: actionContext(c), refresh } }, history);
+      const reply200: AssistantReply = { reply: out.reply, actions: out.actions.map((a) => toActionView(a)) };
+      return reply200;
+    } catch (err) {
+      if (err instanceof ChatError) {
+        const message =
+          err.code === 'busy'
+            ? 'The AI service is busy right now. Try again in a moment, or use the buttons in the app.'
+            : err.code === 'not_configured'
+              ? 'The assistant is not set up on this server'
+              : 'The assistant is not available right now. You can use the buttons in the app.';
+        return reply.code(503).send({ error: message, code: err.code });
+      }
+      throw err;
+    }
+  });
+
+  // The recent cards (newest first), so they survive a reload and a confirmed card shows what happened.
+  app.get('/api/assistant/actions', async (req, reply) => {
+    const c = await contextOf(req, reply);
+    if (!c) return;
+    if (c.viewer.role !== 'organiser') return reply.code(403).send({ error: 'Only the organiser can use the assistant' });
+    const now = Date.now();
+    return (await store.listActions(c.family.id, 20)).map((a) => toActionView(a, now));
+  });
+
+  async function actionStep(req: FastifyRequest, reply: FastifyReply, kind: 'confirm' | 'dismiss') {
+    const c = await contextOf(req, reply);
+    if (!c) return;
+    if (c.viewer.role !== 'organiser') return reply.code(403).send({ error: 'Only the organiser can do this' });
+    const { id } = req.params as { id: string };
+    if (kind === 'dismiss') {
+      const out = await dismissAction(actionContext(c), id);
+      return reply.code(out.http).send(out.action ? { action: toActionView(out.action) } : { error: out.error });
+    }
+    if (!paypal) return reply.code(503).send({ error: 'PayPal is not set up on this server', code: 'not_configured' });
+    const limit = paypalLimiter?.(req.ip) ?? { ok: true as const };
+    if (!limit.ok) return reply.code(429).send({ error: limitMessage(limit, 'changing invoices'), code: limit.reason });
+    const out = await confirmAction(actionContext(c), id, invoiceDeps(c, paypal));
+    return reply.code(out.http).send({ ...(out.action ? { action: toActionView(out.action) } : {}), ...(out.error ? { error: out.error } : {}) });
+  }
+
+  app.post('/api/assistant/actions/:id/confirm', (req, reply) => actionStep(req, reply, 'confirm'));
+  app.post('/api/assistant/actions/:id/dismiss', (req, reply) => actionStep(req, reply, 'dismiss'));
 
   app.post('/api/receipts/read', async (req, reply) => {
     const c = await contextOf(req, reply);

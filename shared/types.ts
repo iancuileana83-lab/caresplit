@@ -82,5 +82,30 @@ export interface FamilyView {
   accounts: SandboxAccountView[];
 }
 
+export type AssistantActionStatus = 'pending' | 'running' | 'done' | 'failed' | 'dismissed' | 'expired';
+
+/** A confirmation card: something the assistant proposed that only the organiser's Confirm button can carry out. */
+export interface AssistantAction {
+  id: string;
+  kind: 'reminder' | 'mark_paid' | 'cancel' | 'send_remaining';
+  title: string;
+  lines: string[];
+  status: AssistantActionStatus;
+  /** Must be confirmed before this moment (ISO time). */
+  confirmBy: string;
+  /** What happened, once it is no longer pending. */
+  result?: string;
+}
+
+export interface AssistantTurn {
+  role: 'user' | 'assistant';
+  text: string;
+}
+
+export interface AssistantReply {
+  reply: string;
+  actions: AssistantAction[];
+}
+
 export const MIN_MEMBERS = 2;
 export const MAX_MEMBERS = 4;

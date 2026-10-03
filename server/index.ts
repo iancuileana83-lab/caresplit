@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { buildApp } from './app';
+import { chatModelFromEnv } from './assistant/model';
 import { createFirestoreStore } from './firestore-store';
 import { readerFromEnv } from './gemini';
 import { createLimiter, limiterFromEnv } from './limits';
@@ -29,6 +30,9 @@ const app = await buildApp({
   paypalLimiter: createLimiter({ perIpPerMinute: num('PAYPAL_LIMIT_PER_MINUTE', 12), perDay: num('PAYPAL_LIMIT_PER_DAY', 400) }),
   writeLimiter: createLimiter({ perIpPerMinute: num('WRITE_LIMIT_PER_MINUTE', 20), perDay: num('WRITE_LIMIT_PER_DAY', 300) }),
   familyLimiter: createLimiter({ perIpPerMinute: num('FAMILY_LIMIT_PER_MINUTE', 5), perDay: num('FAMILY_LIMIT_PER_DAY', 300) }),
+  // Every Gemini request of the assistant is logged by model name only (no text), to see how much quota chat uses.
+  chat: chatModelFromEnv(process.env, (model) => console.log(JSON.stringify({ event: 'assistant_gemini_request', model }))),
+  chatLimiter: createLimiter({ perIpPerMinute: num('CHAT_LIMIT_PER_MINUTE', 8), perDay: num('CHAT_LIMIT_PER_DAY', 120) }),
   webhookId: process.env.PAYPAL_WEBHOOK_ID || undefined,
   webhookLimiter: createLimiter({ perIpPerMinute: num('WEBHOOK_LIMIT_PER_MINUTE', 120), perDay: num('WEBHOOK_LIMIT_PER_DAY', 5000) }),
 });
