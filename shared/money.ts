@@ -13,8 +13,9 @@ export interface SplitPart {
 
 /**
  * Splits a total equally between the members, to the cent.
- * The odd cents go to the payer first (the organiser absorbs them, so a sibling is never
- * billed a cent more than anyone else), then to the other members in list order.
+ * The payer (the organiser) absorbs all the odd cents, at most one fewer than the number of
+ * members, so every other member pays exactly the same rounded-down amount and is never
+ * billed a cent more than anyone else.
  * The result keeps the order of `memberIds` and always sums to `totalCents`.
  */
 export function splitEqual(totalCents: number, memberIds: string[], payerId: string): SplitPart[] {
@@ -24,14 +25,6 @@ export function splitEqual(totalCents: number, memberIds: string[], payerId: str
   if (!memberIds.includes(payerId)) throw new Error('the payer must be one of the members');
 
   const base = Math.floor(totalCents / memberIds.length);
-  let remainder = totalCents - base * memberIds.length;
-
-  const extraOrder = [payerId, ...memberIds.filter((id) => id !== payerId)];
-  const extra = new Map<string, number>();
-  for (const id of extraOrder) {
-    if (remainder === 0) break;
-    extra.set(id, 1);
-    remainder -= 1;
-  }
-  return memberIds.map((memberId) => ({ memberId, amountCents: base + (extra.get(memberId) ?? 0) }));
+  const remainder = totalCents - base * memberIds.length;
+  return memberIds.map((memberId) => ({ memberId, amountCents: base + (memberId === payerId ? remainder : 0) }));
 }

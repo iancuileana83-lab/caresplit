@@ -75,7 +75,7 @@ the heart of the entry. Never cut phase 10.
 | # | Phase | Status |
 |---|-------|--------|
 | 0 | Setup and spikes | next |
-| 1 | Walking skeleton: receipt → split → PayPal invoice → status | in progress (done: app shell with demo data, View as switcher, equal-split maths; receipt upload, Gemini reading, editable Review screen with the "Amounts add up" check, split preview. Next: save receipts in Firestore and send the PayPal invoices) |
+| 1 | Walking skeleton: receipt → split → PayPal invoice → status | in progress (done: app shell with demo data, View as switcher, equal-split maths; receipt upload, Gemini reading, editable Review screen with the "Amounts add up" check, split preview. receipts saved through a store (memory, or Firestore when `DATA_STORE=firestore`), real PayPal sandbox invoices sent after a confirmation, "Refresh status". Next: check the Firestore store against the real database, then deploy) |
 | 2 | Complete core: family rules, receipts list, solid errors, demo data | planned |
 | 3 | First submission package (submit early) | planned |
 | 4 | Pay your share in the app (Checkout, Orders API) | planned |

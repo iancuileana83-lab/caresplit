@@ -1,7 +1,8 @@
-// Fictional demo family and receipts, in memory. Phase 1 replaces the receipts with Firestore
-// and real PayPal invoices; the invoice links below are placeholders, not real invoices.
+// The fictional demo family, plus three sample receipts used when the app runs without a database.
+// The email addresses are PayPal *sandbox* test accounts (not real people, not secrets).
 import { splitEqual } from '../shared/money';
-import type { FamilyView, Member, MemberId, ReceiptView, Share, ShareStatus } from '../shared/types';
+import type { FamilyView, Member, MemberId, ShareStatus } from '../shared/types';
+import type { StoredReceipt } from './store';
 
 export const family: FamilyView = {
   name: 'The Rowan family',
@@ -12,60 +13,43 @@ export const family: FamilyView = {
   ],
 };
 
-const memberIds = family.members.map((m) => m.id);
-
-interface StoredReceipt {
-  id: string;
-  merchant: string;
-  date: string;
-  totalCents: number;
-  payerId: MemberId;
-  statuses: Record<MemberId, ShareStatus>;
-}
-
-const stored: StoredReceipt[] = [
-  { id: 'r-green-leaf', merchant: 'Green Leaf Pharmacy', date: '2026-10-02', totalCents: 3978, payerId: 'anna', statuses: { ben: 'PAID', clara: 'SENT' } },
-  { id: 'r-riverside', merchant: 'Riverside Pharmacy', date: '2026-09-28', totalCents: 4449, payerId: 'anna', statuses: { ben: 'PAID', clara: 'PAID' } },
-  { id: 'r-sunrise', merchant: 'Sunrise Drugstore', date: '2026-09-25', totalCents: 2638, payerId: 'anna', statuses: { ben: 'PAID', clara: 'PAID' } },
-];
-
-function invoiceUrl(receiptId: string, memberId: MemberId): string {
-  return `https://www.sandbox.paypal.com/invoice/p/#demo-${receiptId}-${memberId}`;
-}
-
-/** The full record, as the organiser sees it. */
-function fullView(r: StoredReceipt): ReceiptView {
-  const parts = splitEqual(r.totalCents, memberIds, r.payerId);
-  const shares: Share[] = parts
-    .filter((p) => p.memberId !== r.payerId)
-    .map((p) => ({
-      memberId: p.memberId,
-      amountCents: p.amountCents,
-      status: r.statuses[p.memberId] ?? 'DRAFT',
-      invoiceUrl: invoiceUrl(r.id, p.memberId),
-    }));
-  const payerShareCents = parts.find((p) => p.memberId === r.payerId)?.amountCents ?? 0;
-  return { id: r.id, merchant: r.merchant, date: r.date, payerId: r.payerId, totalCents: r.totalCents, payerShareCents, shares };
-}
+/** Sandbox PayPal accounts the invoices are sent to. Server-side only. */
+export const memberEmails: Record<MemberId, string> = {
+  anna: 'sb-f0k74753183683@personal.example.com',
+  ben: 'sb-cxgha53183684@personal.example.com',
+  clara: 'sb-r1goj53183689@personal.example.com',
+};
 
 export function findMember(id: string): Member | undefined {
   return family.members.find((m) => m.id === id);
 }
 
-/**
- * What `viewer` may see. The organiser sees everything. A sibling sees only the receipts
- * that include a share for them, and only their own share: no total and no other amounts.
- */
-export function receiptsFor(viewer: Member): ReceiptView[] {
-  const all = stored.map(fullView);
-  if (viewer.role === 'organiser') return all;
-  return all
-    .map((r): ReceiptView => ({
-      id: r.id,
-      merchant: r.merchant,
-      date: r.date,
-      payerId: r.payerId,
-      shares: r.shares.filter((s) => s.memberId === viewer.id),
-    }))
-    .filter((r) => r.shares.length > 0);
+const memberIds = family.members.map((m) => m.id);
+
+function sample(id: string, merchant: string, date: string, totalCents: number, statuses: Record<MemberId, ShareStatus>): StoredReceipt {
+  const parts = splitEqual(totalCents, memberIds, 'anna');
+  return {
+    id,
+    merchant,
+    date,
+    currency: 'USD',
+    totalCents,
+    payerId: 'anna',
+    payerShareCents: parts.find((p) => p.memberId === 'anna')?.amountCents ?? 0,
+    items: [],
+    subtotalCents: null,
+    discountCents: null,
+    taxCents: null,
+    // No invoice links: these samples were never sent through PayPal.
+    shares: parts.filter((p) => p.memberId !== 'anna').map((p) => ({ memberId: p.memberId, amountCents: p.amountCents, status: statuses[p.memberId] ?? 'DRAFT' })),
+    createdAt: `${date}T12:00:00.000Z`,
+  };
+}
+
+export function sampleReceipts(): StoredReceipt[] {
+  return [
+    sample('r-green-leaf', 'Green Leaf Pharmacy', '2026-10-02', 3978, { ben: 'PAID', clara: 'SENT' }),
+    sample('r-riverside', 'Riverside Pharmacy', '2026-09-28', 4449, { ben: 'PAID', clara: 'PAID' }),
+    sample('r-sunrise', 'Sunrise Drugstore', '2026-09-25', 2638, { ben: 'PAID', clara: 'PAID' }),
+  ];
 }

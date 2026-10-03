@@ -14,17 +14,20 @@ describe('splitEqual', () => {
     expect(splitEqual(2638, ids, 'ben').map((p) => p.amountCents)).toEqual([879, 880, 879]);
   });
 
-  it('gives two odd cents to the payer and then the next member in list order', () => {
-    expect(splitEqual(1001, ids, 'anna').map((p) => p.amountCents)).toEqual([334, 334, 333]);
-    expect(splitEqual(1001, ids, 'clara').map((p) => p.amountCents)).toEqual([334, 333, 334]);
+  it('gives two odd cents to the payer too, so the others always pay the same', () => {
+    expect(splitEqual(1001, ids, 'anna').map((p) => p.amountCents)).toEqual([335, 333, 333]);
+    expect(splitEqual(1001, ids, 'clara').map((p) => p.amountCents)).toEqual([333, 333, 335]);
+    expect(splitEqual(974, ids, 'anna').map((p) => p.amountCents)).toEqual([326, 324, 324]);
   });
 
-  it('always sums to the total and never differs by more than one cent', () => {
+  it('always sums to the total, siblings pay equal amounts and the payer pays at most 2 cents more', () => {
     for (let total = 0; total <= 500; total++) {
       const parts = splitEqual(total, ids, 'anna');
       expect(sum(parts)).toBe(total);
-      const amounts = parts.map((p) => p.amountCents);
-      expect(Math.max(...amounts) - Math.min(...amounts)).toBeLessThanOrEqual(1);
+      const [anna, ben, clara] = parts.map((p) => p.amountCents);
+      expect(ben).toBe(clara);
+      expect(anna - ben).toBeGreaterThanOrEqual(0);
+      expect(anna - ben).toBeLessThanOrEqual(2);
     }
   });
 
