@@ -1,0 +1,219 @@
+﻿[
+    {
+        "file":  "01-simple.png",
+        "merchant":  "CORNER CARE PHARMACY",
+        "date":  "2026-09-14",
+        "currency":  "USD",
+        "items":  [
+                      {
+                          "name":  "Pain relief tabs 24ct",
+                          "quantity":  null,
+                          "lineTotal":  6.49
+                      },
+                      {
+                          "name":  "Herbal tea 20 bags",
+                          "quantity":  null,
+                          "lineTotal":  3.25
+                      }
+                  ],
+        "subtotal":  9.74,
+        "discount":  null,
+        "tax":  null,
+        "total":  9.74
+    },
+    {
+        "file":  "02-many-items.png",
+        "merchant":  "MAPLE HEALTH MART",
+        "date":  "2026-09-21",
+        "currency":  "USD",
+        "items":  [
+                      {
+                          "name":  "Pain relief tabs 24ct",
+                          "quantity":  null,
+                          "lineTotal":  6.99
+                      },
+                      {
+                          "name":  "Cold relief syrup 8oz",
+                          "quantity":  null,
+                          "lineTotal":  9.49
+                      },
+                      {
+                          "name":  "Digital thermometer",
+                          "quantity":  null,
+                          "lineTotal":  12.99
+                      },
+                      {
+                          "name":  "Elastic bandage",
+                          "quantity":  null,
+                          "lineTotal":  4.75
+                      },
+                      {
+                          "name":  "Gauze pads 50ct",
+                          "quantity":  null,
+                          "lineTotal":  5.25
+                      },
+                      {
+                          "name":  "First aid tape",
+                          "quantity":  null,
+                          "lineTotal":  2.99
+                      },
+                      {
+                          "name":  "Antacid chews 60ct",
+                          "quantity":  null,
+                          "lineTotal":  8.49
+                      },
+                      {
+                          "name":  "Eye drops 0.5oz",
+                          "quantity":  null,
+                          "lineTotal":  10.25
+                      },
+                      {
+                          "name":  "Sunscreen SPF30",
+                          "quantity":  null,
+                          "lineTotal":  11.5
+                      },
+                      {
+                          "name":  "Lip balm",
+                          "quantity":  2,
+                          "lineTotal":  3.98
+                      },
+                      {
+                          "name":  "Tissues 3-pack",
+                          "quantity":  null,
+                          "lineTotal":  4.2
+                      },
+                      {
+                          "name":  "Weekly pill organizer",
+                          "quantity":  null,
+                          "lineTotal":  5.99
+                      }
+                  ],
+        "subtotal":  86.87,
+        "discount":  null,
+        "tax":  null,
+        "total":  86.87
+    },
+    {
+        "file":  "03-discount.png",
+        "merchant":  "SUNRISE DRUGSTORE",
+        "date":  "2026-09-25",
+        "currency":  "USD",
+        "items":  [
+                      {
+                          "name":  "Allergy relief 30ct",
+                          "quantity":  null,
+                          "lineTotal":  14.99
+                      },
+                      {
+                          "name":  "Vitamin C 100ct",
+                          "quantity":  null,
+                          "lineTotal":  9.5
+                      },
+                      {
+                          "name":  "Hand sanitizer 8oz",
+                          "quantity":  2,
+                          "lineTotal":  7.5
+                      },
+                      {
+                          "name":  "Cough drops honey",
+                          "quantity":  null,
+                          "lineTotal":  2.89
+                      }
+                  ],
+        "subtotal":  34.88,
+        "discount":  8.5,
+        "tax":  null,
+        "total":  26.38
+    },
+    {
+        "file":  "04-tax.png",
+        "merchant":  "RIVERSIDE PHARMACY",
+        "date":  "2026-09-28",
+        "currency":  "USD",
+        "items":  [
+                      {
+                          "name":  "Multivitamin 90ct",
+                          "quantity":  null,
+                          "lineTotal":  18.4
+                      },
+                      {
+                          "name":  "Fiber supplement",
+                          "quantity":  null,
+                          "lineTotal":  13.95
+                      },
+                      {
+                          "name":  "Bandage variety pack",
+                          "quantity":  null,
+                          "lineTotal":  5.6
+                      },
+                      {
+                          "name":  "Cotton swabs 300ct",
+                          "quantity":  null,
+                          "lineTotal":  3.15
+                      }
+                  ],
+        "subtotal":  41.1,
+        "discount":  null,
+        "tax":  3.39,
+        "total":  44.49
+    },
+    {
+        "file":  "05-phone-photo.png",
+        "merchant":  "HILLCREST FAMILY PHARMACY",
+        "date":  "2026-10-01",
+        "currency":  "USD",
+        "items":  [
+                      {
+                          "name":  "Pain relief tabs 24ct",
+                          "quantity":  null,
+                          "lineTotal":  7.29
+                      },
+                      {
+                          "name":  "Digestive enzymes 30ct",
+                          "quantity":  null,
+                          "lineTotal":  16.8
+                      },
+                      {
+                          "name":  "Compression socks",
+                          "quantity":  null,
+                          "lineTotal":  19.95
+                      }
+                  ],
+        "subtotal":  44.04,
+        "discount":  null,
+        "tax":  2.64,
+        "total":  46.68
+    },
+    {
+        "file":  "06-non-drug.png",
+        "merchant":  "PINEWOOD PHARMACY \u0026 GIFTS",
+        "date":  "2026-10-02",
+        "currency":  "USD",
+        "items":  [
+                      {
+                          "name":  "Pain relief tabs 24ct",
+                          "quantity":  null,
+                          "lineTotal":  6.99
+                      },
+                      {
+                          "name":  "Birthday card",
+                          "quantity":  null,
+                          "lineTotal":  4.5
+                      },
+                      {
+                          "name":  "Reusable water bottle",
+                          "quantity":  null,
+                          "lineTotal":  14
+                      },
+                      {
+                          "name":  "Chocolate box",
+                          "quantity":  null,
+                          "lineTotal":  8.25
+                      }
+                  ],
+        "subtotal":  33.74,
+        "discount":  null,
+        "tax":  null,
+        "total":  33.74
+    }
+]

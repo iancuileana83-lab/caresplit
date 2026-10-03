@@ -129,7 +129,12 @@ the heart of the entry. Never cut phase 10.
   or a service-account key kept in GitHub secrets, never in the repo).
 - **Gemini:** *(spike done Oct 3: `gemini-3.8-flash` reads the fictional receipt correctly in
   about 6 s; `gemini-2.5-flash` is closed to new keys even though the model list still shows it,
-  so do not trust the list.)* Still open: free-tier rate limits, image size limits. Decide the
+  so do not trust the list.)* Six fictional demo receipts (`demo/receipts/`, with `expected.json`)
+  were all read correctly (merchant, date, items, quantities, discount, tax, total; amounts add
+  up) in 4–10 s. Gemini returned temporary **503 "high demand"** errors on several calls: the app
+  needs retries with backoff and a second model as fallback (`gemini-3.7-flash` also reads them
+  correctly). The duplicate and the very-high-amount receipts for phase 7 are still to be made.
+  Still open: free-tier rate limits, image size limits. Decide the
   fallback if the key is rate limited during judging (cached sample result for the demo receipts).
 - **Official rules:** confirm eligibility, whether specific PayPal APIs are required, and exact
   submission fields.
