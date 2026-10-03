@@ -54,21 +54,23 @@ export async function putJson<T>(path: string, body: unknown): Promise<T> {
   return data as T;
 }
 
-export type ApiState<T> = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: T };
+export type ApiState<T> = { status: 'loading' } | { status: 'error'; message: string; retry: () => void } | { status: 'ready'; data: T };
 
-/** Loads `path` and reloads when it changes. */
+/** Loads `path` and reloads when it changes. An error carries a `retry` that loads it again. */
 export function useApi<T>(path: string): ApiState<T> {
   const [state, setState] = useState<ApiState<T>>({ status: 'loading' });
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let cancelled = false;
     setState({ status: 'loading' });
     getJson<T>(path).then(
       (data) => !cancelled && setState({ status: 'ready', data }),
-      (err: unknown) => !cancelled && setState({ status: 'error', message: err instanceof Error ? err.message : 'Something went wrong' }),
+      (err: unknown) =>
+        !cancelled && setState({ status: 'error', message: err instanceof Error ? err.message : 'Something went wrong', retry: () => setAttempt((n) => n + 1) }),
     );
     return () => {
       cancelled = true;
     };
-  }, [path]);
+  }, [path, attempt]);
   return state;
 }

@@ -1,4 +1,5 @@
 import { ExternalLink } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import type { Member, ReceiptView } from '../../../shared/types';
 import { formatDate, formatUsd, receiptSummary } from '../lib/receipts';
@@ -6,11 +7,15 @@ import { Card } from './Card';
 import { Chip, ShareChip } from './Chip';
 
 /** Receipts as `viewer` may see them: the organiser sees totals, a sibling sees only their share. */
-export function ReceiptList({ receipts, viewer }: { receipts: ReceiptView[]; viewer: Member }) {
+export function ReceiptList({ receipts, viewer, empty }: { receipts: ReceiptView[]; viewer: Member; empty?: ReactNode }) {
   if (receipts.length === 0) {
     return (
       <Card>
-        <p className="py-6 text-center text-quiet">No receipts yet. Add the first one to start splitting.</p>
+        {empty ?? (
+          <p className="py-6 text-center text-quiet">
+            {viewer.role === 'organiser' ? 'No receipts yet. Add the first one to start splitting.' : 'Nothing to pay yet. Invoices show up here when the organiser sends them.'}
+          </p>
+        )}
       </Card>
     );
   }

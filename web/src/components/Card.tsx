@@ -15,13 +15,25 @@ export function Metric({ label, value, tone = 'ink' }: { label: string; value: s
 }
 
 export function LoadingNote() {
-  return <p className="py-8 text-center text-quiet">Loading…</p>;
+  return (
+    <p role="status" className="py-8 text-center text-quiet">
+      Loading…
+    </p>
+  );
 }
 
-export function ErrorNote({ message }: { message: string }) {
+/** A problem loading something. With `onRetry` it offers a button; without, it asks for a reload. */
+export function ErrorNote({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
-    <p className="py-8 text-center text-red-700" role="alert">
-      {message}. Reload the page to try again.
-    </p>
+    <div role="alert" className="space-y-3 py-8 text-center">
+      <p className="text-red-700">{message.replace(/[.!]?$/, '.')}</p>
+      {onRetry ? (
+        <button type="button" onClick={onRetry} className="min-h-11 rounded-xl border border-line bg-white px-4 text-sm font-medium hover:bg-stone-50">
+          Try again
+        </button>
+      ) : (
+        <p className="text-sm text-quiet">Reload the page to try again.</p>
+      )}
+    </div>
   );
 }
