@@ -12,6 +12,8 @@ if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET) throw new Error('PayPal keys mis
 const args = process.argv.slice(2);
 const send = args.includes('--send');
 const to = args[args.indexOf('--to') + 1] ?? 'sibling.demo@example.com';
+// Sandbox merchant (Business) account email; not a secret.
+const from = args.includes('--from') ? args[args.indexOf('--from') + 1] : undefined;
 
 async function token() {
   const basic = Buffer.from(`${PAYPAL_CLIENT_ID}:${PAYPAL_CLIENT_SECRET}`).toString('base64');
@@ -57,7 +59,7 @@ const draft = await api(t, 'POST', '/v2/invoicing/invoices', {
     note: 'CareSplit spike: your share of a pharmacy receipt (fictional data).',
     payment_term: { term_type: 'NET_10' },
   },
-  invoicer: { name: { business_name: 'CareSplit Demo' } },
+  invoicer: { name: { business_name: 'CareSplit Demo' }, email_address: from },
   primary_recipients: [
     { billing_info: { name: { given_name: 'Ben', surname: 'Demo' }, email_address: to } },
   ],

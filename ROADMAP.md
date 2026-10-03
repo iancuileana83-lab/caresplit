@@ -114,6 +114,16 @@ the heart of the entry. Never cut phase 10.
 - **Sandbox invoice payment:** can a sandbox Personal account pay an invoice through the link,
   or must payment be simulated (Invoicing "record payment" API)? This decides how phase 1 shows
   "paid" in the demo.
+- **Findings so far (Oct 3):** the Invoicing scope only appeared on a new app linked to a **US**
+  Business sandbox account (the first app, linked to the Romanian Business account, got 403
+  `NOT_AUTHORIZED` even with Invoicing ticked), so keep USD and the US merchant. Create, send and
+  read of a USD invoice work. The sandbox site is very slow and the first real payment by a
+  sandbox buyer (Ben) did not complete, so the invoice stayed SENT. "Record payment"
+  (`POST /v2/invoicing/invoices/{id}/payments`, method PAYPAL) worked and the status became
+  **`MARKED_AS_PAID`**, not `PAID`: the app must treat both as paid. **To redo later for the
+  demo:** a real payment through the PayPal invoice link or button as a sandbox buyer (retry
+  when the sandbox is faster), to confirm that status becomes `PAID` and to feed the webhook
+  tests in phase 5. Until then the demo can use "record payment" as a fallback.
 - **Cloud Run needs:** billing and APIs (Cloud Run, Artifact Registry, Firestore, Secret Manager)
   enabled on `core-invention-cvz43`; permission to deploy from GitHub Actions (workload identity
   or a service-account key kept in GitHub secrets, never in the repo).
