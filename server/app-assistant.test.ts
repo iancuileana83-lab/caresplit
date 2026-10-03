@@ -65,6 +65,13 @@ describe('POST /api/assistant/chat', () => {
     expect(calls).toBe(0);
   });
 
+  it('says plainly when the demo-wide daily budget is used up', async () => {
+    const { app } = await sentReceipt({ chat: { async generate() { throw new ChatError('budget', 'x'); } } });
+    const res = await chat(app);
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toMatchObject({ code: 'budget', error: expect.stringMatching(/daily limit for the demo/) });
+  });
+
   it('turns a busy AI service into a friendly 503', async () => {
     const { app } = await sentReceipt({ chat: { async generate() { throw new ChatError('busy', 'busy'); } } });
     const res = await chat(app);

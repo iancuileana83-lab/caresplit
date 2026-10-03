@@ -69,6 +69,23 @@ describe('createChatModel', () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  it('stops at the daily budget for the whole app, counting retries, and starts again the next day', async () => {
+    let t = Date.parse('2026-10-04T10:00:00Z');
+    const { chat, calls } = model([ok([{ text: '1' }]), status(503), ok([{ text: '2' }]), ok([{ text: '3' }])], { dailyBudget: 3, now: () => t, attemptsPerModel: 2 });
+    await chat.generate(request); // request 1
+    await chat.generate(request); // requests 2 (503) and 3
+    await expect(chat.generate(request)).rejects.toMatchObject({ code: 'budget' });
+    expect(calls).toHaveLength(3); // nothing was sent once the budget was gone
+    t = Date.parse('2026-10-05T00:00:01Z');
+    expect((await chat.generate(request)).text).toBe('3');
+  });
+
+  it('keeps chat off the models used for reading receipts', async () => {
+    const { DEFAULT_CHAT_MODELS } = await import('./model');
+    const { DEFAULT_MODELS } = await import('../gemini');
+    expect(DEFAULT_CHAT_MODELS.filter((m) => DEFAULT_MODELS.includes(m))).toEqual([]);
+  });
+
   it('counts every request it makes, so the quota used can be seen', async () => {
     const seen: string[] = [];
     const { chat } = model([status(429), status(503), ok([{ text: 'x' }])], { onRequest: (m) => seen.push(m), attemptsPerModel: 2 });

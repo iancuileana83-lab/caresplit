@@ -8,7 +8,7 @@ export interface Content {
   parts: Part[];
 }
 
-export type ChatErrorCode = 'not_configured' | 'busy' | 'service';
+export type ChatErrorCode = 'not_configured' | 'busy' | 'service' | 'budget';
 export class ChatError extends Error {
   constructor(
     public code: ChatErrorCode,
@@ -45,10 +45,17 @@ export interface ChatModelConfig {
   sleep?: (ms: number) => Promise<void>;
   /** Called for every request sent to Gemini (to count the quota used). */
   onRequest?: (model: string) => void;
+  /** At most this many Gemini requests per UTC day for the whole app (this container), so receipt reading always keeps quota. */
+  dailyBudget?: number;
+  now?: () => number;
 }
 
-/** Fast model first (own quota), then a second lite model, then a larger one. */
-export const DEFAULT_CHAT_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.6-flash'];
+/**
+ * Chat gets its own model so it never uses the quota of receipt reading (whose chain starts with gemini-3.5-flash-lite
+ * and falls back to 3.8, 3.7 and 3.6 flash). Deliberately no larger model here: their free quota is tiny and belongs to reading.
+ */
+export const DEFAULT_CHAT_MODELS = ['gemini-3.1-flash-lite'];
+export const DEFAULT_CHAT_DAILY_BUDGET = 150;
 
 const RETRYABLE = new Set([500, 502, 503, 504]);
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -58,6 +65,21 @@ export function createChatModel(config: ChatModelConfig): ChatModel {
   const timeoutMs = config.timeoutMs ?? 30_000;
   const doFetch = config.fetchFn ?? fetch;
   const sleep = config.sleep ?? defaultSleep;
+  const clock = config.now ?? Date.now;
+  let day = '';
+  let used = 0;
+  /** Counts one Gemini request against today's budget; false when the budget is used up. */
+  const spend = () => {
+    if (config.dailyBudget === undefined) return true;
+    const today = new Date(clock()).toISOString().slice(0, 10);
+    if (today !== day) {
+      day = today;
+      used = 0;
+    }
+    if (used >= config.dailyBudget) return false;
+    used += 1;
+    return true;
+  };
 
   return {
     async generate(request) {
@@ -73,6 +95,7 @@ export function createChatModel(config: ChatModelConfig): ChatModel {
       for (const model of config.models) {
         for (let attempt = 1; attempt <= attemptsPerModel; attempt++) {
           let res: Response;
+          if (!spend()) throw new ChatError('budget', "The assistant's daily limit for the whole demo is used up");
           try {
             config.onRequest?.(model);
             res = await doFetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
@@ -115,5 +138,10 @@ export function createChatModel(config: ChatModelConfig): ChatModel {
 
 export function chatModelFromEnv(env: NodeJS.ProcessEnv, onRequest?: (model: string) => void): ChatModel {
   const fromEnv = env.GEMINI_CHAT_MODELS?.split(',').map((m) => m.trim()).filter(Boolean);
-  return createChatModel({ apiKey: env.GEMINI_API_KEY || undefined, models: fromEnv?.length ? fromEnv : DEFAULT_CHAT_MODELS, onRequest });
+  return createChatModel({
+    apiKey: env.GEMINI_API_KEY || undefined,
+    models: fromEnv?.length ? fromEnv : DEFAULT_CHAT_MODELS,
+    onRequest,
+    dailyBudget: Number(env.CHAT_GEMINI_DAILY_BUDGET) || DEFAULT_CHAT_DAILY_BUDGET,
+  });
 }

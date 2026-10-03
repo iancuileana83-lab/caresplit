@@ -396,7 +396,9 @@ export async function buildApp({ store, staticDir, reader, paypal, limiter, payp
     } catch (err) {
       if (err instanceof ChatError) {
         const message =
-          err.code === 'busy'
+          err.code === 'budget'
+            ? 'The assistant has reached its daily limit for the demo. Try again tomorrow, or use the buttons in the app.'
+            : err.code === 'busy'
             ? 'The AI service is busy right now. Try again in a moment, or use the buttons in the app.'
             : err.code === 'not_configured'
               ? 'The assistant is not set up on this server'
