@@ -3,7 +3,7 @@
 import { formatUsd } from '../shared/money';
 import { formatPercent } from '../shared/split';
 import type { Member } from '../shared/types';
-import { mapInvoiceStatus, type PayPalClient } from './paypal';
+import { mapInvoiceStatus, type OutsideMethod, type PayPalClient } from './paypal';
 import type { ReceiptStore, StoredReceipt, StoredShare } from './store';
 
 export interface SendFailure {
@@ -86,6 +86,61 @@ export function sendInvoices(receiptId: string, deps: InvoiceDeps): Promise<{ re
       }
     }
     return { receipt: (await deps.store.get(receiptId)) ?? receipt, failed };
+  });
+}
+
+/** Something the organiser asked for that cannot be done in the share's current state. */
+export class ShareActionError extends Error {
+  constructor(
+    message: string,
+    public status: 404 | 409,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Loads the receipt and the one share an action is about, and checks the share's invoice is
+ * really still open in PayPal (the family may have paid it a moment ago). If PayPal says it is
+ * already paid or cancelled, the saved share is brought up to date and the action is refused.
+ */
+async function openShare(receiptId: string, memberId: string, verb: string, deps: InvoiceDeps) {
+  const receipt = await deps.store.get(receiptId);
+  const share = receipt?.shares.find((s) => s.memberId === memberId);
+  if (!receipt || !share) throw new ShareActionError('Receipt or person not found', 404);
+  if (share.status !== 'SENT' || !share.invoiceId) {
+    throw new ShareActionError(`Only an invoice that was sent and is still unpaid can be ${verb}.`, 409);
+  }
+  const info = await deps.paypal.get(share.invoiceId);
+  const live = mapInvoiceStatus(info.status);
+  if (live !== 'SENT') {
+    share.status = live;
+    await deps.store.save(receipt);
+    throw new ShareActionError(live === 'PAID' ? `This invoice has already been paid, so it can't be ${verb}. The receipt now shows it as paid.` : `This invoice is no longer open (${live.toLowerCase()}). The receipt now shows its real state.`, 409);
+  }
+  return { receipt, share, invoiceId: share.invoiceId };
+}
+
+/** Withdraws one sibling's sent, unpaid invoice. */
+export function cancelInvoice(receiptId: string, memberId: string, deps: InvoiceDeps): Promise<StoredReceipt> {
+  return exclusive(receiptId, async () => {
+    const { receipt, share, invoiceId } = await openShare(receiptId, memberId, 'cancelled', deps);
+    await deps.paypal.cancel(invoiceId, `This invoice for ${share.memberName ?? 'you'} was cancelled by the organiser.`);
+    share.status = 'CANCELLED';
+    await deps.store.save(receipt);
+    return receipt;
+  });
+}
+
+/** Records that one sibling paid their share outside PayPal (cash, bank transfer...). */
+export function markPaidOutside(receiptId: string, memberId: string, input: { method: OutsideMethod; note?: string }, deps: InvoiceDeps, now = new Date()): Promise<StoredReceipt> {
+  return exclusive(receiptId, async () => {
+    const { receipt, share, invoiceId } = await openShare(receiptId, memberId, 'marked as paid', deps);
+    await deps.paypal.recordPayment(invoiceId, { method: input.method, note: input.note, amountCents: share.amountCents, date: now.toISOString().slice(0, 10) });
+    share.status = 'PAID';
+    share.paidOutside = { method: input.method, ...(input.note ? { note: input.note } : {}), at: now.toISOString() };
+    await deps.store.save(receipt);
+    return receipt;
   });
 }
 

@@ -8,11 +8,11 @@ import { accountEmail, sandboxAccounts } from './demo-data';
 import { parseFamilyUpdate } from './family-validate';
 import { getOrCreateFamily, resetFamily, VISITOR_ID } from './families';
 import { ReadError, type ReceiptReader } from './gemini';
-import { refreshStatuses, sendInvoices, type InvoiceDeps } from './invoices';
+import { cancelInvoice, markPaidOutside, refreshStatuses, sendInvoices, ShareActionError, type InvoiceDeps } from './invoices';
 import type { LimitResult } from './limits';
-import type { PayPalClient } from './paypal';
+import { PayPalError, type PayPalClient } from './paypal';
 import type { ReceiptStore, Store, StoredFamily, StoredReceipt } from './store';
-import { parseNewReceipt } from './validate';
+import { parseMarkPaid, parseNewReceipt } from './validate';
 import { organiserView, viewOf, viewsFor } from './views';
 
 export interface AppOptions {
@@ -195,6 +195,43 @@ export async function buildApp({ store, staticDir, reader, paypal, limiter, payp
     if (existing.sample) return reply.code(400).send({ error: 'Sample receipts have no invoices to send' });
     const { receipt, failed } = await sendInvoices(id, invoiceDeps(c, paypal));
     return { receipt: organiserView(receipt), failed };
+  });
+
+  // Shared by "cancel" and "mark as paid": one sibling's share of one real receipt, organiser only.
+  async function shareAction(
+    req: FastifyRequest,
+    reply: FastifyReply,
+    run: (c: Context, receiptId: string, memberId: string, paypalClient: PayPalClient) => Promise<StoredReceipt>,
+  ) {
+    const c = await contextOf(req, reply);
+    if (!c) return;
+    if (c.viewer.role !== 'organiser') return reply.code(403).send({ error: 'Only the organiser can do this' });
+    if (!paypal) return reply.code(503).send({ error: 'PayPal is not set up on this server', code: 'not_configured' });
+    const { id, memberId } = req.params as { id: string; memberId: string };
+    const existing = await c.receipts.get(id);
+    if (!existing) return reply.code(404).send({ error: 'Receipt not found' });
+    if (existing.sample) return reply.code(400).send({ error: 'Sample receipts have no invoices' });
+    const limit = paypalLimiter?.(req.ip) ?? { ok: true as const };
+    if (!limit.ok) return reply.code(429).send({ error: limitMessage(limit, 'changing invoices'), code: limit.reason });
+    try {
+      return { receipt: organiserView(await run(c, id, memberId, paypal)) };
+    } catch (err) {
+      if (err instanceof ShareActionError) return reply.code(err.status).send({ error: err.message });
+      if (err instanceof PayPalError) {
+        return reply.code(502).send({ error: `PayPal could not do that right now (${err.message}). Nothing was changed. Try again in a moment.`, code: 'paypal_error' });
+      }
+      throw err;
+    }
+  }
+
+  // Withdraws a sibling's sent, unpaid invoice.
+  app.post('/api/receipts/:id/shares/:memberId/cancel', (req, reply) => shareAction(req, reply, (c, id, memberId, p) => cancelInvoice(id, memberId, invoiceDeps(c, p))));
+
+  // Records that a sibling paid their share outside PayPal.
+  app.post('/api/receipts/:id/shares/:memberId/mark-paid', (req, reply) => {
+    const parsed = parseMarkPaid(req.body);
+    if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
+    return shareAction(req, reply, (c, id, memberId, p) => markPaidOutside(id, memberId, parsed.value, invoiceDeps(c, p)));
   });
 
   // Reads each invoice's current status from PayPal.

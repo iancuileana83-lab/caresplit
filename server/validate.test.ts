@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { parseNewReceipt } from './validate';
+import { parseMarkPaid, parseNewReceipt } from './validate';
+
+describe('parseMarkPaid', () => {
+  it('accepts a method with or without a short note', () => {
+    expect(parseMarkPaid({ method: 'CASH' })).toEqual({ ok: true, value: { method: 'CASH' } });
+    expect(parseMarkPaid({ method: 'OTHER', note: '  Venmo  ' })).toEqual({ ok: true, value: { method: 'OTHER', note: 'Venmo' } });
+    expect(parseMarkPaid({ method: 'BANK_TRANSFER', note: '   ' })).toEqual({ ok: true, value: { method: 'BANK_TRANSFER' } });
+  });
+
+  it('refuses unknown methods, long notes and control characters', () => {
+    for (const body of [null, 'cash', {}, { method: 'PAYPAL' }, { method: 'CASH', note: 5 }, { method: 'CASH', note: 'x'.repeat(101) }, { method: 'CASH', note: 'a\u0000b' }]) {
+      expect(parseMarkPaid(body).ok, JSON.stringify(body)).toBe(false);
+    }
+  });
+});
 
 const good = {
   merchant: ' Green Leaf Pharmacy ',

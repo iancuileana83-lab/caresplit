@@ -15,6 +15,29 @@ const MAX_CENTS = 100_000_00; // $100,000: far above any pharmacy receipt
 const isCents = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= MAX_CENTS;
 const isCentsOrNull = (v: unknown): v is number | null => v === null || isCents(v);
 
+export interface MarkPaidInput {
+  method: 'CASH' | 'BANK_TRANSFER' | 'OTHER';
+  note?: string;
+}
+
+const MAX_NOTE = 100;
+
+/** The body of "mark as paid outside PayPal": how it was paid, and an optional short note. */
+export function parseMarkPaid(body: unknown): { ok: true; value: MarkPaidInput } | { ok: false; error: string } {
+  if (typeof body !== 'object' || body === null) return { ok: false, error: 'Choose how it was paid' };
+  const b = body as Record<string, unknown>;
+  if (b.method !== 'CASH' && b.method !== 'BANK_TRANSFER' && b.method !== 'OTHER') return { ok: false, error: 'Choose how it was paid: cash, bank transfer or another way' };
+  let note: string | undefined;
+  if (b.note !== undefined && b.note !== null && b.note !== '') {
+    if (typeof b.note !== 'string') return { ok: false, error: 'The note must be text' };
+    note = b.note.trim();
+    if (note.length > MAX_NOTE) return { ok: false, error: `Keep the note under ${MAX_NOTE + 1} characters` };
+    if (/[\u0000-\u001f\u007f]/.test(note)) return { ok: false, error: 'The note cannot contain control characters' };
+    if (note === '') note = undefined;
+  }
+  return { ok: true, value: { method: b.method, ...(note ? { note } : {}) } };
+}
+
 /** Returns the cleaned receipt, or a message saying what is wrong. */
 export function parseNewReceipt(body: unknown): { ok: true; value: NewReceiptInput } | { ok: false; error: string } {
   if (typeof body !== 'object' || body === null) return { ok: false, error: 'Send the receipt as JSON' };

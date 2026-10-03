@@ -49,6 +49,22 @@ describe('createPayPalClient', () => {
     expect((create.init.headers as Record<string, string>)['PayPal-Request-Id']).toBe('req-1');
   });
 
+  it('cancels an invoice and tells the recipient', async () => {
+    const { calls, paypal } = client((url) => (url.endsWith('/v1/oauth2/token') ? json({ access_token: 'tok', expires_in: 3600 }) : json({})));
+    await paypal.cancel('INV2-1', 'Cancelled by the organiser');
+    const cancel = calls[1];
+    expect(cancel.url).toBe('https://api-m.sandbox.paypal.com/v2/invoicing/invoices/INV2-1/cancel');
+    expect(JSON.parse(String(cancel.init.body))).toEqual({ subject: 'Invoice cancelled', note: 'Cancelled by the organiser', send_to_invoicer: false, send_to_recipient: true });
+  });
+
+  it('records a payment made outside PayPal in USD with the date and method', async () => {
+    const { calls, paypal } = client((url) => (url.endsWith('/v1/oauth2/token') ? json({ access_token: 'tok', expires_in: 3600 }) : json({ payment_id: 'EXTR-1' })));
+    await paypal.recordPayment('INV2-1', { method: 'CASH', note: 'At lunch', amountCents: 1556, date: '2026-10-05' });
+    const record = calls[1];
+    expect(record.url).toBe('https://api-m.sandbox.paypal.com/v2/invoicing/invoices/INV2-1/payments');
+    expect(JSON.parse(String(record.init.body))).toEqual({ method: 'CASH', payment_date: '2026-10-05', note: 'At lunch', amount: { currency_code: 'USD', value: '15.56' } });
+  });
+
   it('reuses the sign-in token between calls', async () => {
     const { calls, paypal } = client((url) => (url.endsWith('/v1/oauth2/token') ? json({ access_token: 'tok', expires_in: 3600 }) : json({ id: 'X', status: 'SENT' })));
     await paypal.get('A');

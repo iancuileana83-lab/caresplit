@@ -5,12 +5,14 @@ interface Props {
   title: string;
   children: ReactNode;
   confirmLabel: string;
+  /** The label of the button that closes the dialog without doing anything. */
+  cancelLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
 }
 
 /** A modal confirmation built on the native <dialog>: focus is trapped and Escape cancels. */
-export function ConfirmDialog({ open, title, children, confirmLabel, onConfirm, onCancel }: Props) {
+export function ConfirmDialog({ open, title, children, confirmLabel, cancelLabel = 'Cancel', onConfirm, onCancel }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -39,7 +41,7 @@ export function ConfirmDialog({ open, title, children, confirmLabel, onConfirm, 
           {confirmLabel}
         </button>
         <button type="button" onClick={onCancel} className="min-h-12 rounded-2xl border border-line px-4 text-[15px] font-medium hover:bg-stone-50">
-          Cancel
+          {cancelLabel}
         </button>
       </div>
     </dialog>

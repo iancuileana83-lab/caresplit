@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildApp, type AppOptions } from './app';
 import { ReadError } from './gemini';
-import type { PayPalClient } from './paypal';
+import { PayPalError, type PayPalClient } from './paypal';
 import { createMemoryStore } from './store';
 import type { FamilyView, ReceiptView } from '../shared/types';
 
@@ -175,25 +175,40 @@ const newReceipt = {
 };
 
 // A PayPal stand-in that records what it was asked and can be told to fail.
-function fakePayPal(opts: { failSendFor?: string } = {}) {
+function fakePayPal(opts: { failSendFor?: string; failCancel?: boolean; failRecord?: boolean } = {}) {
   const log: string[] = [];
+  /** What PayPal currently says about each invoice; tests can change it (for example to PAID). */
+  const states = new Map<string, string>();
   let n = 0;
   const client = {
     async createDraft(req: { recipientName: string; recipientEmail: string; amountCents: number; itemDescription: string }) {
       log.push(`create:${req.recipientName}:${req.amountCents}:${req.recipientEmail}`);
       log.push(`description:${req.itemDescription}`);
-      return { id: `INV-${++n}`, status: 'DRAFT', number: `000${n}` };
+      const id = `INV-${++n}`;
+      states.set(id, 'DRAFT');
+      return { id, status: 'DRAFT', number: `000${n}` };
     },
     async send(id: string) {
       log.push(`send:${id}`);
       if (opts.failSendFor === id) throw new Error('PayPal is down');
+      states.set(id, 'SENT');
     },
     async get(id: string) {
       log.push(`get:${id}`);
-      return { id, status: 'SENT', number: '0001', recipientViewUrl: `https://sandbox.example/${id}` };
+      return { id, status: states.get(id) ?? 'SENT', number: '0001', recipientViewUrl: `https://sandbox.example/${id}` };
+    },
+    async cancel(id: string) {
+      log.push(`cancel:${id}`);
+      if (opts.failCancel) throw new PayPalError('PayPal is down', 500);
+      states.set(id, 'CANCELLED');
+    },
+    async recordPayment(id: string, p: { method: string; note?: string; amountCents: number; date: string }) {
+      log.push(`record:${id}:${p.method}:${p.amountCents}:${p.note ?? ''}`);
+      if (opts.failRecord) throw new PayPalError('PayPal is down', 500);
+      states.set(id, 'MARKED_AS_PAID');
     },
   } as unknown as PayPalClient;
-  return { client, log };
+  return { client, log, states };
 }
 
 const members3 = [
@@ -335,6 +350,131 @@ describe('splitting by percentage', () => {
     // a receipt can still override it
     const equal = (await post(a, '/api/receipts?as=anna', { ...newReceipt, splitRule: { type: 'equal' } })).json() as ReceiptView;
     expect(equal.shares.map((s) => s.amountCents)).toEqual([1556, 1556]);
+  });
+});
+
+/** A saved receipt whose two invoices (Ben, Clara) have been sent, on an app wired to `paypal`. */
+async function sentReceipt(paypal: ReturnType<typeof fakePayPal>, options: Partial<AppOptions> = {}) {
+  const a = await app({ paypal: paypal.client, ...options });
+  const saved = (await post(a, '/api/receipts?as=anna', newReceipt)).json() as ReceiptView;
+  await post(a, `/api/receipts/${saved.id}/send?as=anna`);
+  return { a, id: saved.id };
+}
+const shareOf = (r: ReceiptView, who: string) => r.shares.find((s) => s.memberId === who)!;
+
+describe('cancelling an invoice', () => {
+  it('withdraws one sent invoice and leaves the other alone', async () => {
+    const pp = fakePayPal();
+    const { a, id } = await sentReceipt(pp);
+    const res = await post(a, `/api/receipts/${id}/shares/clara/cancel?as=anna`);
+    expect(res.statusCode).toBe(200);
+    const { receipt } = res.json() as { receipt: ReceiptView };
+    expect(shareOf(receipt, 'clara').status).toBe('CANCELLED');
+    expect(shareOf(receipt, 'ben').status).toBe('SENT');
+    expect(pp.log.filter((l) => l.startsWith('cancel:'))).toEqual(['cancel:INV-2']); // Clara's invoice only
+    // the cancelled share no longer shows up as owed
+    const clara = (await get(a, `/api/receipts/${id}?as=clara`)).json() as ReceiptView;
+    expect(clara.shares[0].status).toBe('CANCELLED');
+  });
+
+  it('refuses when the invoice was paid in the meantime, and brings the receipt up to date', async () => {
+    const pp = fakePayPal();
+    const { a, id } = await sentReceipt(pp);
+    pp.states.set('INV-1', 'PAID'); // Ben paid on PayPal a moment ago
+    const res = await post(a, `/api/receipts/${id}/shares/ben/cancel?as=anna`);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toMatch(/already been paid/);
+    expect(pp.log.some((l) => l.startsWith('cancel:'))).toBe(false); // never tried to cancel a paid invoice
+    expect(shareOf((await get(a, `/api/receipts/${id}?as=anna`)).json() as ReceiptView, 'ben').status).toBe('PAID');
+  });
+
+  it('refuses an invoice that was never sent, or is already cancelled', async () => {
+    const pp = fakePayPal({ failSendFor: 'INV-1' });
+    const { a, id } = await sentReceipt(pp);
+    expect((await post(a, `/api/receipts/${id}/shares/ben/cancel?as=anna`)).statusCode).toBe(409); // Ben's send failed: still a draft
+    expect((await post(a, `/api/receipts/${id}/shares/clara/cancel?as=anna`)).statusCode).toBe(200);
+    expect((await post(a, `/api/receipts/${id}/shares/clara/cancel?as=anna`)).statusCode).toBe(409);
+  });
+
+  it('leaves the share untouched when PayPal fails', async () => {
+    const pp = fakePayPal({ failCancel: true });
+    const { a, id } = await sentReceipt(pp);
+    const res = await post(a, `/api/receipts/${id}/shares/ben/cancel?as=anna`);
+    expect(res.statusCode).toBe(502);
+    expect(res.json().error).toMatch(/Nothing was changed/);
+    expect(shareOf((await get(a, `/api/receipts/${id}?as=anna`)).json() as ReceiptView, 'ben').status).toBe('SENT');
+  });
+
+  it('is for the organiser, real receipts and known people only', async () => {
+    const pp = fakePayPal();
+    const { a, id } = await sentReceipt(pp);
+    expect((await post(a, `/api/receipts/${id}/shares/clara/cancel?as=ben`)).statusCode).toBe(403);
+    expect((await post(a, `/api/receipts/${id}/shares/anna/cancel?as=anna`)).statusCode).toBe(404); // the organiser has no invoice
+    expect((await post(a, `/api/receipts/${id}/shares/zoe/cancel?as=anna`)).statusCode).toBe(404);
+    expect((await post(a, '/api/receipts/nope/shares/ben/cancel?as=anna')).statusCode).toBe(404);
+    expect((await post(a, '/api/receipts/sample-green-leaf/shares/clara/cancel?as=anna')).statusCode).toBe(400);
+    expect((await post(a, `/api/receipts/${id}/shares/ben/cancel?as=anna`, undefined, OTHER)).statusCode).toBe(404); // someone else's family
+    expect((await post(await app(), `/api/receipts/${id}/shares/ben/cancel?as=anna`)).statusCode).toBe(503);
+  });
+});
+
+describe('marking a share as paid outside PayPal', () => {
+  it('records the payment in PayPal and on the receipt', async () => {
+    const pp = fakePayPal();
+    const { a, id } = await sentReceipt(pp);
+    const res = await post(a, `/api/receipts/${id}/shares/ben/mark-paid?as=anna`, { method: 'CASH', note: 'Paid at lunch' });
+    expect(res.statusCode).toBe(200);
+    const { receipt } = res.json() as { receipt: ReceiptView };
+    expect(shareOf(receipt, 'ben')).toMatchObject({ status: 'PAID', paidOutside: { method: 'CASH', note: 'Paid at lunch' } });
+    expect(shareOf(receipt, 'clara').status).toBe('SENT');
+    expect(pp.log.filter((l) => l.startsWith('record:'))).toEqual(['record:INV-1:CASH:1556:Paid at lunch']);
+    // a later "Refresh status" keeps it paid, and Ben sees how it was paid but not the private note
+    await post(a, `/api/receipts/${id}/refresh?as=anna`);
+    const asBen = (await get(a, `/api/receipts/${id}?as=ben`)).json() as ReceiptView;
+    expect(asBen.shares[0]).toMatchObject({ status: 'PAID', paidOutside: { method: 'CASH' } });
+    expect(JSON.stringify(asBen)).not.toContain('Paid at lunch');
+  });
+
+  it('works without a note, and for a bank transfer', async () => {
+    const pp = fakePayPal();
+    const { a, id } = await sentReceipt(pp);
+    const res = await post(a, `/api/receipts/${id}/shares/clara/mark-paid?as=anna`, { method: 'BANK_TRANSFER' });
+    expect(shareOf((res.json() as { receipt: ReceiptView }).receipt, 'clara').paidOutside).toEqual({ method: 'BANK_TRANSFER' });
+  });
+
+  it('refuses a bad method or note, and anything not open', async () => {
+    const pp = fakePayPal();
+    const { a, id } = await sentReceipt(pp);
+    const url = `/api/receipts/${id}/shares/ben/mark-paid?as=anna`;
+    expect((await post(a, url, { method: 'BITCOIN' })).statusCode).toBe(400);
+    expect((await post(a, url, {})).statusCode).toBe(400);
+    expect((await post(a, url, { method: 'CASH', note: 'x'.repeat(101) })).statusCode).toBe(400);
+    expect((await post(a, url, { method: 'CASH', note: 'line\nbreak' })).statusCode).toBe(400);
+    expect(pp.log.some((l) => l.startsWith('record:'))).toBe(false);
+    pp.states.set('INV-1', 'PAID');
+    const paid = await post(a, url, { method: 'CASH' });
+    expect(paid.statusCode).toBe(409);
+    expect(paid.json().error).toMatch(/already been paid/);
+    expect(pp.log.some((l) => l.startsWith('record:'))).toBe(false); // never records a second payment
+    await post(a, `/api/receipts/${id}/shares/clara/cancel?as=anna`);
+    expect((await post(a, `/api/receipts/${id}/shares/clara/mark-paid?as=anna`, { method: 'CASH' })).statusCode).toBe(409); // cancelled
+  });
+
+  it('leaves the share untouched when PayPal fails', async () => {
+    const pp = fakePayPal({ failRecord: true });
+    const { a, id } = await sentReceipt(pp);
+    const res = await post(a, `/api/receipts/${id}/shares/ben/mark-paid?as=anna`, { method: 'CASH' });
+    expect(res.statusCode).toBe(502);
+    expect(shareOf((await get(a, `/api/receipts/${id}?as=anna`)).json() as ReceiptView, 'ben').status).toBe('SENT');
+  });
+
+  it('is for the organiser and real receipts only, and respects the PayPal limit', async () => {
+    const pp = fakePayPal();
+    const { a, id } = await sentReceipt(pp);
+    expect((await post(a, `/api/receipts/${id}/shares/clara/mark-paid?as=ben`, { method: 'CASH' })).statusCode).toBe(403);
+    expect((await post(a, '/api/receipts/sample-green-leaf/shares/clara/mark-paid?as=anna', { method: 'CASH' })).statusCode).toBe(400);
+    const limited = await sentReceipt(fakePayPal(), { paypalLimiter: (() => { let calls = 0; return () => (++calls <= 1 ? { ok: true as const } : { ok: false as const, reason: 'rate' as const }); })() });
+    expect((await post(limited.a, `/api/receipts/${limited.id}/shares/ben/mark-paid?as=anna`, { method: 'CASH' })).statusCode).toBe(429);
   });
 });
 

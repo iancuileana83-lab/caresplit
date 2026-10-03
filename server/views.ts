@@ -10,7 +10,14 @@ export function organiserView(r: StoredReceipt): ReceiptView {
     payerId: r.payerId,
     totalCents: r.totalCents,
     payerShareCents: r.payerShareCents,
-    shares: r.shares.map((s) => ({ memberId: s.memberId, name: s.memberName, amountCents: s.amountCents, status: s.status, invoiceUrl: s.invoiceUrl })),
+    shares: r.shares.map((s) => ({
+      memberId: s.memberId,
+      name: s.memberName,
+      amountCents: s.amountCents,
+      status: s.status,
+      invoiceUrl: s.invoiceUrl,
+      ...(s.paidOutside ? { paidOutside: { method: s.paidOutside.method, note: s.paidOutside.note } } : {}),
+    })),
     splitRule: r.splitRule ?? { type: 'equal' },
     ...(r.sample ? { sample: true } : {}),
   };
@@ -23,7 +30,8 @@ export function organiserView(r: StoredReceipt): ReceiptView {
 export function viewOf(r: StoredReceipt, viewer: Member): ReceiptView | undefined {
   const full = organiserView(r);
   if (viewer.role === 'organiser') return full;
-  const own = full.shares.filter((s) => s.memberId === viewer.id);
+  // The organiser's private note about how a payment was made is not shown to the sibling.
+  const own = full.shares.filter((s) => s.memberId === viewer.id).map((s) => (s.paidOutside ? { ...s, paidOutside: { method: s.paidOutside.method } } : s));
   if (own.length === 0) return undefined;
   return { id: full.id, merchant: full.merchant, date: full.date, payerId: full.payerId, shares: own, ...(full.sample ? { sample: true } : {}) };
 }

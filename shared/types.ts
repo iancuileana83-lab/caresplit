@@ -30,6 +30,8 @@ export interface Share {
   amountCents: number;
   status: ShareStatus;
   invoiceUrl?: string;
+  /** Present when the organiser recorded a payment made outside PayPal. */
+  paidOutside?: { method: 'CASH' | 'BANK_TRANSFER' | 'OTHER'; note?: string };
 }
 
 /**

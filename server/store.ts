@@ -34,6 +34,8 @@ export interface StoredShare {
   invoiceUrl?: string;
   invoiceNumber?: string;
   sentAt?: string;
+  /** Set when the organiser recorded that this share was paid outside PayPal. */
+  paidOutside?: { method: 'CASH' | 'BANK_TRANSFER' | 'OTHER'; note?: string; at: string };
 }
 
 export interface StoredReceipt {

@@ -43,6 +43,10 @@ export interface InvoiceInfo {
 
 const dollars = (cents: number) => (cents / 100).toFixed(2);
 
+/** The ways a payment made outside PayPal can be recorded. */
+export const OUTSIDE_METHODS = ['CASH', 'BANK_TRANSFER', 'OTHER'] as const;
+export type OutsideMethod = (typeof OUTSIDE_METHODS)[number];
+
 /** PayPal invoice status -> the three states a share can be in for the family. */
 export function mapInvoiceStatus(status: string): ShareStatus {
   switch (status) {
@@ -134,6 +138,26 @@ export function createPayPalClient(config: PayPalConfig) {
 
     async send(invoiceId: string): Promise<void> {
       await call('POST', `/v2/invoicing/invoices/${encodeURIComponent(invoiceId)}/send`, { send_to_recipient: true, send_to_invoicer: false });
+    },
+
+    /** Withdraws a sent invoice so it can no longer be paid. PayPal also tells the recipient. */
+    async cancel(invoiceId: string, note: string): Promise<void> {
+      await call('POST', `/v2/invoicing/invoices/${encodeURIComponent(invoiceId)}/cancel`, {
+        subject: 'Invoice cancelled',
+        note: note.slice(0, 4000),
+        send_to_invoicer: false,
+        send_to_recipient: true,
+      });
+    },
+
+    /** Records a payment made outside PayPal (cash, bank transfer...). The invoice becomes MARKED_AS_PAID. */
+    async recordPayment(invoiceId: string, payment: { method: OutsideMethod; note?: string; amountCents: number; date: string }): Promise<void> {
+      await call('POST', `/v2/invoicing/invoices/${encodeURIComponent(invoiceId)}/payments`, {
+        method: payment.method,
+        payment_date: payment.date,
+        note: payment.note,
+        amount: { currency_code: 'USD', value: dollars(payment.amountCents) },
+      });
     },
 
     async get(invoiceId: string): Promise<InvoiceInfo> {

@@ -1,11 +1,12 @@
-import { ArrowLeft, CircleAlert, CircleCheck, ExternalLink, LoaderCircle, RefreshCw, Send } from 'lucide-react';
+import { ArrowLeft, Ban, Banknote, CircleAlert, CircleCheck, ExternalLink, LoaderCircle, RefreshCw, Send } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { formatPercent } from '../../../shared/split';
-import type { ReceiptView } from '../../../shared/types';
+import type { ReceiptView, Share } from '../../../shared/types';
 import { Card, ErrorNote, LoadingNote } from '../components/Card';
 import { ShareChip } from '../components/Chip';
-import { ApiError, postJson, useApi } from '../lib/api';
+import { ConfirmDialog } from '../components/ConfirmDialog';
+import { ApiError, getJson, postJson, useApi } from '../lib/api';
 import { formatLongDate, formatUsd } from '../lib/receipts';
 import { useViewAs } from '../lib/view-as';
 
@@ -19,6 +20,12 @@ interface ActionResult {
 }
 type Notice = { tone: 'ok' | 'problem'; text: string; details?: string[] } | null;
 
+type Method = 'CASH' | 'BANK_TRANSFER' | 'OTHER';
+const METHOD_LABELS: Record<Method, string> = { CASH: 'cash', BANK_TRANSFER: 'bank transfer', OTHER: 'another way' };
+
+/** What the organiser is being asked to confirm for one person's share. */
+type ShareDialog = { kind: 'cancel' | 'paid'; share: Share } | null;
+
 export function ReceiptDetail() {
   const { id = '' } = useParams();
   const { family, viewer } = useViewAs();
@@ -31,9 +38,16 @@ export function ReceiptDetail() {
   const [busy, setBusy] = useState<'send' | 'refresh' | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
 
+  // Cancel an invoice, or record a payment made outside PayPal, for one person.
+  const [dialog, setDialog] = useState<ShareDialog>(null);
+  const [method, setMethod] = useState<Method>('CASH');
+  const [note, setNote] = useState('');
+  const [shareBusy, setShareBusy] = useState(false);
+
   useEffect(() => {
     setFresh(null);
     setNotice(null);
+    setDialog(null);
   }, [id, viewer.id]);
 
   useEffect(() => {
@@ -72,6 +86,37 @@ export function ReceiptDetail() {
       setNotice({ tone: 'problem', text: err instanceof ApiError ? err.message : 'Something went wrong.' });
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function runShareAction(current: NonNullable<ShareDialog>) {
+    setShareBusy(true);
+    setNotice(null);
+    const who = current.share.name ?? nameOf(current.share.memberId);
+    const path = current.kind === 'cancel' ? 'cancel' : 'mark-paid';
+    try {
+      const result = await postJson<{ receipt: ReceiptView }>(
+        `/api/receipts/${encodeURIComponent(id)}/shares/${encodeURIComponent(current.share.memberId)}/${path}?as=${viewer.id}`,
+        current.kind === 'paid' ? { method, note: note.trim() || undefined } : undefined,
+      );
+      setFresh(result.receipt);
+      setNotice({ tone: 'ok', text: current.kind === 'cancel' ? `${who}'s invoice was cancelled.` : `${who}'s share is marked as paid (${METHOD_LABELS[method]}).` });
+      setDialog(null);
+      setNote('');
+    } catch (err) {
+      setDialog(null);
+      setNotice({ tone: 'problem', text: err instanceof ApiError ? err.message : 'Something went wrong.' });
+      // The server may have found the invoice already paid or cancelled and updated it: show that.
+      if (err instanceof ApiError && err.status === 409) {
+        try {
+          const latest = await getJson<ReceiptView>(`/api/receipts/${encodeURIComponent(id)}?as=${viewer.id}`);
+          setFresh(latest);
+        } catch {
+          /* the message above is enough */
+        }
+      }
+    } finally {
+      setShareBusy(false);
     }
   }
 
@@ -158,6 +203,32 @@ export function ReceiptDetail() {
                         <ExternalLink size={14} aria-hidden="true" />
                       </a>
                     )}
+                    {s.paidOutside && (
+                      <p className="mt-1 text-sm text-quiet">
+                        Paid outside PayPal ({METHOD_LABELS[s.paidOutside.method]})
+                        {s.paidOutside.note ? `: ${s.paidOutside.note}` : ''}
+                      </p>
+                    )}
+                    {organiser && real && s.status === 'SENT' && (
+                      <div className="mt-1 flex flex-wrap gap-x-4">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMethod('CASH');
+                            setNote('');
+                            setDialog({ kind: 'paid', share: s });
+                          }}
+                          className="inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-teal-700"
+                        >
+                          <Banknote size={16} aria-hidden="true" />
+                          Mark as paid
+                        </button>
+                        <button type="button" onClick={() => setDialog({ kind: 'cancel', share: s })} className="inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-red-700">
+                          <Ban size={16} aria-hidden="true" />
+                          Cancel invoice
+                        </button>
+                      </div>
+                    )}
                   </li>
                 ))}
                 {receipt.payerShareCents !== undefined && (
@@ -196,6 +267,58 @@ export function ReceiptDetail() {
                 </button>
               )}
             </div>
+          )}
+
+          <ConfirmDialog
+            open={dialog?.kind === 'cancel' && !shareBusy}
+            title={`Cancel ${dialog?.share.name ?? ''}'s invoice?`.replace("  ", ' ')}
+            confirmLabel="Cancel the invoice"
+            cancelLabel="Keep it"
+            onConfirm={() => dialog && void runShareAction(dialog)}
+            onCancel={() => setDialog(null)}
+          >
+            <p>
+              The {dialog ? formatUsd(dialog.share.amountCents) : ''} invoice is withdrawn in PayPal, so {dialog?.share.name ?? 'this person'} can no longer pay it, and it stops
+              counting as owed. This can't be undone.
+            </p>
+          </ConfirmDialog>
+
+          <ConfirmDialog
+            open={dialog?.kind === 'paid' && !shareBusy}
+            title={`Mark ${dialog?.share.name ?? ''}'s share as paid?`.replace("  ", ' ')}
+            confirmLabel="Mark as paid"
+            onConfirm={() => dialog && void runShareAction(dialog)}
+            onCancel={() => setDialog(null)}
+          >
+            <p className="mb-3">
+              Use this when {dialog?.share.name ?? 'this person'} paid you {dialog ? formatUsd(dialog.share.amountCents) : ''} some other way. PayPal records it on the invoice as paid.
+            </p>
+            <label htmlFor="paid-method" className="mb-1 block text-xs text-quiet">
+              How was it paid?
+            </label>
+            <select id="paid-method" value={method} onChange={(e) => setMethod(e.target.value as Method)} className="mb-3 min-h-11 w-full rounded-xl border border-line bg-white px-3 text-base text-ink">
+              <option value="CASH">Cash</option>
+              <option value="BANK_TRANSFER">Bank transfer</option>
+              <option value="OTHER">Another way</option>
+            </select>
+            <label htmlFor="paid-note" className="mb-1 block text-xs text-quiet">
+              Note (optional)
+            </label>
+            <input
+              id="paid-note"
+              value={note}
+              maxLength={100}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="For example: paid at lunch"
+              autoComplete="off"
+              className="min-h-11 w-full rounded-xl border border-line bg-white px-3 text-base text-ink"
+            />
+          </ConfirmDialog>
+
+          {shareBusy && (
+            <p role="status" className="text-center text-sm text-quiet">
+              Working with PayPal…
+            </p>
           )}
         </>
       )}

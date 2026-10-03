@@ -254,6 +254,23 @@ says which part of the total is theirs. The fourth sandbox account (buyer D) is 
 Cleaned the old Phase 1 test receipt out of Firestore (`families/rowan`, one document, checked first).
 94 automated tests.
 
+**Step 3a built (Oct 3):** the Receipts screen has Month and Status filters (kept in the address
+bar so Back and links work), a totals card for just the selection (spent, open, paid back; a sibling
+sees to pay and paid), a clear empty state with "Clear filters", and a retry button when loading
+fails. Statuses: waiting for payment, paid, not sent, cancelled (a cancelled invoice counts as neither
+owed nor paid).
+
+**Step 3b built (Oct 3):** on a real receipt the organiser can **Cancel invoice** (PayPal
+`POST /v2/invoicing/invoices/{id}/cancel`, recipient notified) and **Mark as paid** outside PayPal
+(`POST .../payments`, method cash, bank transfer or other, optional 100-character note; the invoice
+becomes `MARKED_AS_PAID`). Both only for a sent, unpaid invoice. Before acting, the server asks PayPal
+for the invoice's real state: if the sibling paid a moment ago it refuses ("already paid"), brings the
+receipt up to date and never cancels a paid invoice or records a second payment. If PayPal fails,
+nothing changes. A sibling sees how it was paid but not the organiser's private note. **Verified on
+the real PayPal sandbox** (one 0.30 USD receipt, two 0.10 USD invoices): Ben marked paid in cash with a
+note, Clara's invoice cancelled, and "Refresh status" read the same states back from PayPal.
+119 automated tests.
+
 **Tested by**
 - Unit tests for custom percentages (sum 100, rounding, one member at 0 %).
 - Playwright flows: set up a family, upload a sample receipt, send invoices, see statuses.
