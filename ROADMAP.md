@@ -79,7 +79,7 @@ the heart of the entry. Never cut phase 10.
 | 2 | Complete core: family rules, receipts list, solid errors, demo data | built and **live** (Oct 3, Cloud Run revision `caresplit-00004-pxj`; the 7-day TTL policy on `expireAt` is created for `families` and `receipts`): a private demo family per visitor with sample history and "Reset demo"; an editable family (2 to 4 members, sandbox accounts from a list, equal or percentage split, per-receipt override); receipt filters with totals; cancel an invoice and mark a share as paid outside PayPal; friendly errors and empty states. 128 automated tests, 26 live checks. **Step 2d "Care credit" level 1 is built (not deployed yet)** |
 | 3 | First submission package (submit early) | planned |
 | 4 | Pay your share in the app (Checkout, Orders API) | planned, after the real-payment test of the webhooks |
-| 5 | PayPal webhooks: automatic status | built, deployed (revision `caresplit-00006-vcd`) and registered in the PayPal sandbox; waiting for the real-payment test as Ben |
+| 5 | PayPal webhooks: automatic status | done and live (revision `caresplit-00006-vcd`): a payment recorded in PayPal updated the app by itself within about 30 s; a buyer's payment on Ben's invoice is still to try |
 | 6 | AI chat assistant over the family's data | planned |
 | 7 | AI checks: duplicates, high amounts, late payers | planned |
 | 8 | AI-written payment reminders | planned |
@@ -418,8 +418,15 @@ created with exactly the four invoice events). Image `caresplit:phase4`, revisio
 PayPal does the checking), a call without the headers or with a body that is not JSON with 400, a plain
 visit with 404; the 26 earlier and 16 care-credit live checks still pass. Invoices sent *before* this deploy are
 not in the invoice index, so only invoices sent from revision 00006 on update by themselves (older ones still
-work with "Refresh status"). Still to do: a real payment as Ben, the only test that proves PayPal's real signed
-call is accepted.
+work with "Refresh status").
+
+**Real webhook verified (Oct 4).** The owner's sandbox pages were too slow to pay as a buyer, so a payment was
+recorded *directly in PayPal's API* (not through CareSplit) on Clara's 3.65 USD invoice of the CORNER CARE
+PHARMACY receipt (9.74 USD). About 30 s later PayPal sent its real signed webhook call; the Cloud Run request log
+shows it accepted (200, 3.8 s), and Clara's share changed from Sent to Paid **by itself** (the database marks the
+source as `webhook`), while Ben's 2.43 USD share stayed Sent, also unpaid in PayPal. This proves the whole chain
+with PayPal's real signature check. Still to do, nice to have: a payment by a sandbox buyer on Ben's invoice
+(the same event type, so little new risk).
 
 **Delivers**
 - A public webhook endpoint on Cloud Run, registered in the sandbox app, for invoice paid,
