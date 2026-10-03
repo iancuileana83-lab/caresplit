@@ -76,7 +76,7 @@ the heart of the entry. Never cut phase 10.
 |---|-------|--------|
 | 0 | Setup and spikes | done (the Orders/Checkout spike moves to the start of phase 4) |
 | 1 | Walking skeleton: receipt → split → PayPal invoice → status | done, live on Cloud Run (Oct 3) |
-| 2 | Complete core: family rules, receipts list, solid errors, demo data | in progress. Step 1 done (not deployed yet): a private demo family per visitor with sample history and "Reset demo". Next: editable family (2 to 4 members, sandbox accounts from a list, equal or percentage split), filters, cancel and "paid outside PayPal", polish and browser tests |
+| 2 | Complete core: family rules, receipts list, solid errors, demo data | in progress. Steps 1 and 2 done (not deployed yet): a private demo family per visitor with sample history and "Reset demo"; an editable family (2 to 4 members, sandbox accounts from a list, equal or percentage split, per-receipt override). Next: receipt filters and month totals, cancel and "paid outside PayPal", polish and browser tests, then deploy with the TTL policy |
 | 3 | First submission package (submit early) | planned |
 | 4 | Pay your share in the app (Checkout, Orders API) | planned |
 | 5 | PayPal webhooks: automatic status | planned |
@@ -239,6 +239,20 @@ their receipts and restores the family. Creating new families has its own per-ad
 saved document carries `expireAt`. 73 automated tests, including: visitors never see each other's
 receipts (404), a missing or malformed id is refused, reset leaves other visitors alone. Honest
 limit: the visitor id is a bearer secret in the browser, not a login.
+
+**Step 2 built (Oct 3):** the Family screen is an editable form for the organiser (siblings see it
+read-only): family name, 2 to 4 people (names, one organiser, each linked to a different PayPal
+sandbox account from a fixed list of four; the addresses never leave the server), add and remove
+people, and the family's default split: equal shares or custom percentages with a live "adds up to
+100%" check and a "Share equally" button. The Split & send screen starts from that default and can
+override it for one receipt; amounts update live. Percentages are stored as basis points so they
+add up exactly; every sibling pays their percentage rounded down to the cent and the organiser takes
+the rest (at most a few cents more), so nobody is billed too much. A person at 0 % gets no share and
+no invoice; a split that leaves nothing to invoice is refused. Each share keeps the person's name
+from when the receipt was made, so old receipts still read well after a rename or removal; the invoice
+says which part of the total is theirs. The fourth sandbox account (buyer D) is in the list.
+Cleaned the old Phase 1 test receipt out of Firestore (`families/rowan`, one document, checked first).
+94 automated tests.
 
 **Tested by**
 - Unit tests for custom percentages (sum 100, rounding, one member at 0 %).

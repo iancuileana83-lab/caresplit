@@ -1,6 +1,7 @@
 // Creates and sends one PayPal invoice per sibling's share, safely: every step is saved before the
 // next one starts, so a failure halfway (or a second click) never produces duplicate invoices.
 import { formatUsd } from '../shared/money';
+import { formatPercent } from '../shared/split';
 import type { Member } from '../shared/types';
 import { mapInvoiceStatus, type PayPalClient } from './paypal';
 import type { ReceiptStore, StoredReceipt, StoredShare } from './store';
@@ -34,10 +35,12 @@ async function exclusive<T>(key: string, fn: () => Promise<T>): Promise<T> {
 const needsSending = (s: StoredShare) => s.status === 'DRAFT' && s.amountCents > 0;
 
 function describe(receipt: StoredReceipt, share: StoredShare, payerName: string) {
-  const parts = receipt.shares.length + 1;
+  const rule = receipt.splitRule;
+  const how =
+    rule?.type === 'percent' ? `your part is ${formatPercent(rule.basisPoints[share.memberId] ?? 0)}% of the total` : 'split equally between the family members';
   return {
     itemName: `Your share of the ${receipt.merchant} receipt`,
-    itemDescription: `Receipt dated ${receipt.date}, total ${formatUsd(receipt.totalCents)}, split equally between ${parts} people and paid at the pharmacy by ${payerName}.`,
+    itemDescription: `Receipt dated ${receipt.date}, total ${formatUsd(receipt.totalCents)}, ${how}, paid at the pharmacy by ${payerName}.`,
     note: 'CareSplit demo: fictional data, PayPal sandbox. Amounts and dates only.',
     amountCents: share.amountCents,
   };

@@ -20,6 +20,7 @@ export const sandboxAccounts: SandboxAccount[] = [
   { id: 'buyer-a', label: 'Sandbox buyer A', email: 'sb-f0k74753183683@personal.example.com' },
   { id: 'buyer-b', label: 'Sandbox buyer B', email: 'sb-cxgha53183684@personal.example.com' },
   { id: 'buyer-c', label: 'Sandbox buyer C', email: 'sb-r1goj53183689@personal.example.com' },
+  { id: 'buyer-d', label: 'Sandbox buyer D', email: 'sb-mltzy53187091@personal.example.com' },
 ];
 
 export function accountEmail(accountId: string | undefined): string | undefined {
@@ -37,6 +38,7 @@ export function newFamily(id: string, now: Date): StoredFamily {
       { id: 'ben', name: 'Ben', role: 'member', accountId: 'buyer-b' },
       { id: 'clara', name: 'Clara', role: 'member', accountId: 'buyer-c' },
     ],
+    splitRule: { type: 'equal' },
     createdAt: now.toISOString(),
     expireAt: new Date(now.getTime() + FAMILY_TTL_DAYS * dayMs).toISOString(),
   };
@@ -69,9 +71,12 @@ function sample(
     discountCents: null,
     taxCents: null,
     // No invoice links: the samples were never sent through PayPal.
-    shares: parts.filter((p) => p.memberId !== organiser.id).map((p) => ({ memberId: p.memberId, amountCents: p.amountCents, status: statuses[p.memberId] ?? 'DRAFT' })),
+    shares: parts
+      .filter((p) => p.memberId !== organiser.id)
+      .map((p) => ({ memberId: p.memberId, memberName: family.members.find((m) => m.id === p.memberId)?.name, amountCents: p.amountCents, status: statuses[p.memberId] ?? 'DRAFT' })),
     createdAt: `${date}T12:00:00.000Z`,
     sample: true,
+    splitRule: { type: 'equal' },
     expireAt: family.expireAt,
   };
 }

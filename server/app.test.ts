@@ -27,7 +27,9 @@ describe('visitors and their families', () => {
     const a = await app();
     const family = (await get(a, '/api/family')).json() as FamilyView;
     expect(family.members.map((m) => m.name)).toEqual(['Anna', 'Ben', 'Clara']);
-    expect(JSON.stringify(family)).not.toMatch(/personal\.example\.com|accountId|buyer-/); // no addresses leave the server
+    expect(JSON.stringify(family)).not.toMatch(/personal\.example\.com|@/); // no addresses leave the server
+    expect(family.accounts.map((a) => a.id)).toEqual(['buyer-a', 'buyer-b', 'buyer-c', 'buyer-d']);
+    expect(family.splitRule).toEqual({ type: 'equal' });
     const receipts = (await get(a, '/api/receipts?as=anna')).json() as ReceiptView[];
     expect(receipts).toHaveLength(3);
     expect(receipts.every((r) => r.sample === true)).toBe(true);
@@ -177,8 +179,9 @@ function fakePayPal(opts: { failSendFor?: string } = {}) {
   const log: string[] = [];
   let n = 0;
   const client = {
-    async createDraft(req: { recipientName: string; recipientEmail: string; amountCents: number }) {
+    async createDraft(req: { recipientName: string; recipientEmail: string; amountCents: number; itemDescription: string }) {
       log.push(`create:${req.recipientName}:${req.amountCents}:${req.recipientEmail}`);
+      log.push(`description:${req.itemDescription}`);
       return { id: `INV-${++n}`, status: 'DRAFT', number: `000${n}` };
     },
     async send(id: string) {
@@ -193,6 +196,148 @@ function fakePayPal(opts: { failSendFor?: string } = {}) {
   return { client, log };
 }
 
+const members3 = [
+  { id: 'anna', name: 'Anna', role: 'organiser', accountId: 'buyer-a' },
+  { id: 'ben', name: 'Ben', role: 'member', accountId: 'buyer-b' },
+  { id: 'clara', name: 'Clara', role: 'member', accountId: 'buyer-c' },
+];
+const david = { name: 'David', role: 'member', accountId: 'buyer-d' }; // a new member has no id yet
+const family = (members: unknown[], splitRule: unknown = { type: 'equal' }, name = 'The Rowan family') => ({ name, members, splitRule });
+const put = (a: App, body: unknown, who = 'anna', visitor = VISITOR) => a.inject({ method: 'PUT', url: `/api/family?as=${who}`, headers: as(visitor), payload: body as never });
+
+describe('editing the family', () => {
+  it('lets the organiser rename people, add a fourth member and rename the family', async () => {
+    const a = await app();
+    const res = await put(a, family([{ ...members3[0], name: 'Anne' }, members3[1], members3[2], david], { type: 'equal' }, 'The Marin family'));
+    expect(res.statusCode).toBe(200);
+    const saved = res.json() as FamilyView;
+    expect(saved.name).toBe('The Marin family');
+    expect(saved.members.map((m) => m.name)).toEqual(['Anne', 'Ben', 'Clara', 'David']);
+    expect(saved.members[3].id).toMatch(/^m-[0-9a-f]{8}$/);
+    expect(saved.members[3].accountId).toBe('buyer-d');
+    expect(((await get(a, '/api/family')).json() as FamilyView).members).toHaveLength(4);
+    // the new member can be viewed as, and has nothing to pay yet
+    const asDavid = await get(a, `/api/receipts?as=${saved.members[3].id}`);
+    expect(asDavid.statusCode).toBe(200);
+    expect(asDavid.json()).toEqual([]);
+  });
+
+  it('keeps one visitor\'s changes away from the others', async () => {
+    const a = await app();
+    await put(a, family([members3[0], members3[1]]));
+    expect(((await get(a, '/api/family')).json() as FamilyView).members).toHaveLength(2);
+    expect(((await get(a, '/api/family', OTHER)).json() as FamilyView).members).toHaveLength(3);
+  });
+
+  it('only lets the organiser change it', async () => {
+    expect((await put(await app(), family(members3), 'ben')).statusCode).toBe(403);
+  });
+
+  it('refuses anything outside 2 to 4 members, one organiser, distinct names and sandbox accounts', async () => {
+    const a = await app();
+    const bad = async (body: unknown, message: RegExp) => {
+      const res = await put(a, body);
+      expect(res.statusCode, JSON.stringify(res.json())).toBe(400);
+      expect(res.json().error).toMatch(message);
+    };
+    await bad(family([members3[0]]), /2 to 4 members/);
+    await bad(family([...members3, david, { name: 'Eve', role: 'member', accountId: 'buyer-a' }]), /2 to 4 members/);
+    await bad(family([members3[0], { ...members3[1], role: 'organiser' }]), /Exactly one/);
+    await bad(family([{ ...members3[0], role: 'member' }, members3[1]]), /Exactly one/);
+    await bad(family([members3[0], { ...members3[1], name: 'ANNA' }]), /different name/);
+    await bad(family([members3[0], { ...members3[1], accountId: 'buyer-a' }]), /different PayPal sandbox account/);
+    await bad(family([members3[0], { ...members3[1], accountId: 'someone@real-person.com' }]), /sandbox account from the list/);
+    await bad(family([members3[0], { ...members3[1], id: 'not-a-member' }]), /Unknown family member/);
+    await bad(family([members3[0], { ...members3[1], name: '' }]), /Each name/);
+    await bad(family([members3[0], { ...members3[1], name: '<img src=x onerror=alert(1)>' }]), /Each name/);
+    await bad(family([members3[0], { ...members3[1], name: 'x'.repeat(21) }]), /Each name/);
+    await bad(family(members3, { type: 'equal' }, ''), /family name/);
+    await bad(family([members3[0], members3[0]]), /appears twice/);
+    await bad({ name: 'Rowan' }, /2 to 4 members/);
+  });
+
+  it('keeps a percentage rule in step with the members', async () => {
+    const a = await app();
+    const pct = (bp: Record<string, number>) => ({ type: 'percent', basisPoints: bp });
+    // adding David without giving him a percentage is refused...
+    const missing = await put(a, family([...members3, david], pct({ anna: 5000, ben: 3000, clara: 2000 })));
+    expect(missing.statusCode).toBe(400);
+    expect(missing.json().error).toMatch(/percentage for each person/);
+    // ...a rule that does not add up is refused with the actual total...
+    const off = await put(a, family(members3, pct({ anna: 5000, ben: 3000, clara: 1500 })));
+    expect(off.json().error).toMatch(/add up to 95%/);
+    // ...and a new member is named in the rule by position: new-<index in the members list>
+    const ok = await put(a, family([...members3, david], pct({ anna: 4000, ben: 2000, clara: 2000, 'new-3': 2000 })));
+    expect(ok.statusCode).toBe(200);
+    const saved = ok.json() as FamilyView;
+    const davidId = saved.members[3].id;
+    expect(saved.splitRule).toEqual(pct({ anna: 4000, ben: 2000, clara: 2000, [davidId]: 2000 }));
+  });
+
+  it('leaves old receipts readable after a member is renamed or removed', async () => {
+    const a = await app();
+    await put(a, family([members3[0], { ...members3[1], name: 'Benny' }])); // Clara removed, Ben renamed
+    const receipt = (await get(a, '/api/receipts/sample-green-leaf?as=anna')).json() as ReceiptView;
+    expect(receipt.shares.map((s) => s.name)).toEqual(['Ben', 'Clara']); // the names they had when the receipt was made
+    expect(receipt.shares).toHaveLength(2);
+  });
+});
+
+describe('splitting by percentage', () => {
+  const rule = (anna: number, ben: number, clara: number) => ({ type: 'percent', basisPoints: { anna, ben, clara } });
+
+  it('uses the percentages, gives the organiser the odd cents, and remembers the rule', async () => {
+    const { client, log } = fakePayPal();
+    const a = await app({ paypal: client });
+    const res = await post(a, '/api/receipts?as=anna', { ...newReceipt, splitRule: rule(5000, 3000, 2000) });
+    expect(res.statusCode).toBe(201);
+    const view = res.json() as ReceiptView;
+    expect(view.payerShareCents).toBe(2335);
+    expect(view.shares.map((s) => [s.name, s.amountCents])).toEqual([['Ben', 1400], ['Clara', 933]]);
+    expect(view.splitRule).toEqual(rule(5000, 3000, 2000));
+    // a sibling never sees the rule or anyone else's amount
+    const ben = (await get(a, `/api/receipts/${view.id}?as=ben`)).json() as ReceiptView;
+    expect(ben.splitRule).toBeUndefined();
+    expect(JSON.stringify(ben)).not.toContain('933');
+    // the invoice says which part of the total is theirs
+    await post(a, `/api/receipts/${view.id}/send?as=anna`);
+    expect(log.filter((l) => l.startsWith('description:'))[0]).toContain('your part is 30% of the total');
+    expect(log.filter((l) => l.startsWith('description:'))[1]).toContain('your part is 20% of the total');
+  });
+
+  it('sends no invoice to someone at 0 percent', async () => {
+    const { client, log } = fakePayPal();
+    const a = await app({ paypal: client });
+    const view = (await post(a, '/api/receipts?as=anna', { ...newReceipt, splitRule: rule(5000, 0, 5000) })).json() as ReceiptView;
+    expect(view.shares.map((s) => s.name)).toEqual(['Clara']);
+    await post(a, `/api/receipts/${view.id}/send?as=anna`);
+    expect(log.filter((l) => l.startsWith('create:')).map((l) => l.split(':')[1])).toEqual(['Clara']);
+    expect(((await get(a, '/api/receipts?as=ben')).json() as ReceiptView[]).some((r) => r.id === view.id)).toBe(false);
+  });
+
+  it('refuses a rule that does not add up, or that leaves nothing to invoice', async () => {
+    const a = await app();
+    const off = await post(a, '/api/receipts?as=anna', { ...newReceipt, splitRule: rule(5000, 3000, 1000) });
+    expect(off.statusCode).toBe(400);
+    expect(off.json().error).toMatch(/add up to 90%/);
+    const alone = await post(a, '/api/receipts?as=anna', { ...newReceipt, splitRule: rule(10000, 0, 0) });
+    expect(alone.statusCode).toBe(400);
+    expect(alone.json().error).toMatch(/nobody else owes anything/);
+    expect(((await get(a, '/api/receipts?as=anna')).json() as ReceiptView[]).length).toBe(3); // nothing was saved
+  });
+
+  it('follows the family default when a receipt does not choose', async () => {
+    const a = await app();
+    await put(a, family(members3, rule(5000, 2500, 2500)));
+    const view = (await post(a, '/api/receipts?as=anna', newReceipt)).json() as ReceiptView;
+    expect(view.shares.map((s) => s.amountCents)).toEqual([1167, 1167]);
+    expect(view.payerShareCents).toBe(2334);
+    // a receipt can still override it
+    const equal = (await post(a, '/api/receipts?as=anna', { ...newReceipt, splitRule: { type: 'equal' } })).json() as ReceiptView;
+    expect(equal.shares.map((s) => s.amountCents)).toEqual([1556, 1556]);
+  });
+});
+
 describe('saving and sending receipts', () => {
   it('saves a receipt with an equal split and nothing sent yet', async () => {
     const a = await app();
@@ -202,8 +347,8 @@ describe('saving and sending receipts', () => {
     expect(view.totalCents).toBe(4668);
     expect(view.payerShareCents).toBe(1556);
     expect(view.shares).toEqual([
-      { memberId: 'ben', amountCents: 1556, status: 'DRAFT' },
-      { memberId: 'clara', amountCents: 1556, status: 'DRAFT' },
+      { memberId: 'ben', name: 'Ben', amountCents: 1556, status: 'DRAFT' },
+      { memberId: 'clara', name: 'Clara', amountCents: 1556, status: 'DRAFT' },
     ]);
     expect(view.sample).toBeUndefined();
     const list = (await get(a, '/api/receipts?as=anna')).json() as ReceiptView[];

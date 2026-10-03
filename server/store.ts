@@ -1,5 +1,6 @@
 // Where families and receipts live. Two implementations behind one interface: in memory (tests,
 // and local development without Google Cloud) and Firestore (see firestore-store.ts).
+import type { SplitRule } from '../shared/split';
 import type { MemberId, ShareStatus } from '../shared/types';
 
 export interface StoredMember {
@@ -15,6 +16,8 @@ export interface StoredFamily {
   id: string;
   name: string;
   members: StoredMember[];
+  /** How new receipts are split by default. Older documents may lack it: read it as equal. */
+  splitRule?: SplitRule;
   createdAt: string;
   /** Everything of this family is deleted after this moment (Firestore TTL, when enabled). */
   expireAt: string;
@@ -22,6 +25,8 @@ export interface StoredFamily {
 
 export interface StoredShare {
   memberId: MemberId;
+  /** The member's name when the receipt was made. */
+  memberName?: string;
   amountCents: number;
   status: ShareStatus;
   /** PayPal invoice id, saved as soon as the draft exists so a retry never creates a second one. */
@@ -49,6 +54,8 @@ export interface StoredReceipt {
   createdAt: string;
   /** True for the built-in sample history: no real PayPal invoice exists for it. */
   sample?: boolean;
+  /** How this receipt was split (equal when missing). */
+  splitRule?: SplitRule;
   expireAt?: string;
 }
 

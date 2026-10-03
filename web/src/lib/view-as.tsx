@@ -9,6 +9,8 @@ interface ViewAs {
   /** The member the app is currently shown as (demo switcher, no login). */
   viewer: Member;
   setViewerId: (id: string) => void;
+  /** Use a family the server just saved, so every screen shows it without reloading. */
+  updateFamily: (family: FamilyView) => void;
 }
 
 const Ctx = createContext<ViewAs | null>(null);
@@ -24,6 +26,7 @@ function readSaved(): string | null {
 export function ViewAsProvider({ children }: { children: ReactNode }) {
   const familyState = useApi<FamilyView>('/api/family');
   const [savedId, setSavedId] = useState<string | null>(readSaved);
+  const [updated, setUpdated] = useState<FamilyView | null>(null);
 
   const setViewerId = useCallback((id: string) => {
     setSavedId(id);
@@ -45,9 +48,9 @@ export function ViewAsProvider({ children }: { children: ReactNode }) {
     );
   }
 
-  const family = familyState.data;
+  const family = updated ?? familyState.data;
   const viewer = family.members.find((m) => m.id === savedId) ?? family.members.find((m) => m.role === 'organiser') ?? family.members[0];
-  return <Ctx.Provider value={{ family, viewer, setViewerId }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ family, viewer, setViewerId, updateFamily: setUpdated }}>{children}</Ctx.Provider>;
 }
 
 export function useViewAs(): ViewAs {

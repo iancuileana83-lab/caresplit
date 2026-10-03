@@ -2,9 +2,10 @@ import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import fastifyStatic from '@fastify/static';
-import { splitEqual } from '../shared/money';
+import { splitByRule, validateRule, type SplitRule } from '../shared/split';
 import type { FamilyView, Member } from '../shared/types';
-import { accountEmail } from './demo-data';
+import { accountEmail, sandboxAccounts } from './demo-data';
+import { parseFamilyUpdate } from './family-validate';
 import { getOrCreateFamily, resetFamily, VISITOR_ID } from './families';
 import { ReadError, type ReceiptReader } from './gemini';
 import { refreshStatuses, sendInvoices, type InvoiceDeps } from './invoices';
@@ -37,7 +38,12 @@ const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const limitMessage = (limit: Extract<LimitResult, { ok: false }>, what: string) =>
   limit.reason === 'daily' ? `The demo has reached its daily limit for ${what}. Try again tomorrow.` : `Too many requests in a short time. Wait a minute and try again.`;
 
-const publicFamily = (f: StoredFamily): FamilyView => ({ name: f.name, members: f.members.map((m) => ({ id: m.id, name: m.name, role: m.role })) });
+const publicFamily = (f: StoredFamily): FamilyView => ({
+  name: f.name,
+  members: f.members.map((m) => ({ id: m.id, name: m.name, role: m.role, accountId: m.accountId })),
+  splitRule: f.splitRule ?? { type: 'equal' },
+  accounts: sandboxAccounts.map((a) => ({ id: a.id, label: a.label })), // labels only: the addresses stay on the server
+});
 
 export async function buildApp({ store, staticDir, reader, paypal, limiter, paypalLimiter, writeLimiter, familyLimiter }: AppOptions) {
   // Behind Cloud Run the real visitor address is the last entry of X-Forwarded-For (added by
@@ -96,6 +102,21 @@ export async function buildApp({ store, staticDir, reader, paypal, limiter, payp
     return c ? publicFamily(c.family) : undefined;
   });
 
+  // Changes the family: name, 2 to 4 members, who is the organiser, each member's sandbox account and
+  // the default split rule. Receipts that already exist keep the shares they were made with.
+  app.put('/api/family', async (req, reply) => {
+    const c = await contextOf(req, reply);
+    if (!c) return;
+    if (c.viewer.role !== 'organiser') return reply.code(403).send({ error: 'Only the organiser can change the family' });
+    const parsed = parseFamilyUpdate(req.body, c.family);
+    if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
+    const limit = writeLimiter?.(req.ip) ?? { ok: true as const };
+    if (!limit.ok) return reply.code(429).send({ error: limitMessage(limit, 'changing the family'), code: limit.reason });
+    const updated: StoredFamily = { ...c.family, ...parsed.value };
+    await store.saveFamily(updated);
+    return publicFamily(updated);
+  });
+
   // Back to a fresh sample family (organiser only). Invoices already sent in the PayPal sandbox stay there.
   app.post('/api/demo/reset', async (req, reply) => {
     const c = await contextOf(req, reply);
@@ -132,14 +153,26 @@ export async function buildApp({ store, staticDir, reader, paypal, limiter, payp
     const limit = writeLimiter?.(req.ip) ?? { ok: true as const };
     if (!limit.ok) return reply.code(429).send({ error: limitMessage(limit, 'saving receipts'), code: limit.reason });
 
+    // The split for this receipt: the one sent with it, or else the family's default.
+    const memberIds = c.family.members.map((m) => m.id);
+    const sent = (req.body as { splitRule?: unknown }).splitRule;
+    const rule: SplitRule = sent === undefined ? (c.family.splitRule ?? { type: 'equal' }) : (sent as SplitRule);
+    const ruleProblem = validateRule(rule, memberIds);
+    if (ruleProblem) return reply.code(400).send({ error: ruleProblem });
+
     const input = parsed.value;
-    const parts = splitEqual(input.totalCents, c.family.members.map((m) => m.id), c.viewer.id);
+    const parts = splitByRule(input.totalCents, memberIds, c.viewer.id, rule);
+    const nameOf = (id: string) => c.family.members.find((m) => m.id === id)?.name;
+    // A member who owes nothing gets no share and no invoice.
+    const shares = parts.filter((p) => p.memberId !== c.viewer.id && p.amountCents > 0).map((p) => ({ memberId: p.memberId, memberName: nameOf(p.memberId), amountCents: p.amountCents, status: 'DRAFT' as const }));
+    if (shares.length === 0) return reply.code(400).send({ error: 'With this split nobody else owes anything, so there is nothing to invoice. Choose a different split.' });
     const receipt: StoredReceipt = {
       id: randomUUID(),
       ...input,
       payerId: c.viewer.id,
       payerShareCents: parts.find((p) => p.memberId === c.viewer.id)?.amountCents ?? 0,
-      shares: parts.filter((p) => p.memberId !== c.viewer.id).map((p) => ({ memberId: p.memberId, amountCents: p.amountCents, status: 'DRAFT' as const })),
+      shares,
+      splitRule: rule,
       createdAt: new Date().toISOString(),
       expireAt: c.family.expireAt,
     };

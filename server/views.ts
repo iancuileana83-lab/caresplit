@@ -10,14 +10,15 @@ export function organiserView(r: StoredReceipt): ReceiptView {
     payerId: r.payerId,
     totalCents: r.totalCents,
     payerShareCents: r.payerShareCents,
-    shares: r.shares.map((s) => ({ memberId: s.memberId, amountCents: s.amountCents, status: s.status, invoiceUrl: s.invoiceUrl })),
+    shares: r.shares.map((s) => ({ memberId: s.memberId, name: s.memberName, amountCents: s.amountCents, status: s.status, invoiceUrl: s.invoiceUrl })),
+    splitRule: r.splitRule ?? { type: 'equal' },
     ...(r.sample ? { sample: true } : {}),
   };
 }
 
 /**
  * What `viewer` may see of one receipt. The organiser sees everything. A sibling sees only
- * their own share: no total and no one else's amount. Undefined means "not for this viewer".
+ * their own share: no total, no one else's amount and no split rule. Undefined means "not for this viewer".
  */
 export function viewOf(r: StoredReceipt, viewer: Member): ReceiptView | undefined {
   const full = organiserView(r);

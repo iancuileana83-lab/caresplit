@@ -1,6 +1,7 @@
 import { ArrowLeft, CircleAlert, CircleCheck, ExternalLink, LoaderCircle, RefreshCw, Send } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
+import { formatPercent } from '../../../shared/split';
 import type { ReceiptView } from '../../../shared/types';
 import { Card, ErrorNote, LoadingNote } from '../components/Card';
 import { ShareChip } from '../components/Chip';
@@ -120,6 +121,16 @@ export function ReceiptDetail() {
                 <span className="text-quiet">Total</span>
                 <span className="text-xl font-semibold tabular-nums">{formatUsd(receipt.totalCents)}</span>
               </div>
+              {receipt.splitRule && (
+                <p className="mt-1 text-sm text-quiet">
+                  {receipt.splitRule.type === 'equal'
+                    ? 'Split in equal shares'
+                    : `Split by percentage: ${Object.entries(receipt.splitRule.basisPoints)
+                        .filter(([, bp]) => bp > 0)
+                        .map(([id, bp]) => `${receipt.shares.find((s) => s.memberId === id)?.name ?? nameOf(id)} ${formatPercent(bp)}%`)
+                        .join(', ')}`}
+                </p>
+              )}
             </Card>
           )}
 
@@ -131,7 +142,7 @@ export function ReceiptDetail() {
                   <li key={s.memberId} className="py-3">
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <div className="font-medium">{nameOf(s.memberId)}</div>
+                        <div className="font-medium">{s.name ?? nameOf(s.memberId)}</div>
                         <div className="text-sm tabular-nums text-quiet">{formatUsd(s.amountCents)}</div>
                       </div>
                       <ShareChip status={s.status} />
