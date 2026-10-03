@@ -42,6 +42,31 @@ export interface StoredShare {
   /** Set when a PayPal webhook (not a click on "Refresh status") last changed this share's status. */
   statusSource?: 'webhook';
   statusUpdatedAt?: string;
+  /** When the last payment reminder for this invoice was sent (at most one a day). */
+  reminderSentAt?: string;
+}
+
+export type ActionKind = 'reminder' | 'mark_paid' | 'cancel' | 'send_remaining';
+export type ActionStatus = 'pending' | 'running' | 'done' | 'failed' | 'dismissed' | 'expired';
+
+/** Something the assistant proposed that waits for the organiser's Confirm. */
+export interface PendingAction {
+  id: string;
+  kind: ActionKind;
+  receiptId: string;
+  memberId?: MemberId;
+  params?: { method?: 'CASH' | 'BANK_TRANSFER' | 'OTHER'; note?: string; message?: string };
+  /** Plain text for the confirmation card. */
+  title: string;
+  lines: string[];
+  status: ActionStatus;
+  createdAt: string;
+  /** Must be confirmed before this moment. */
+  confirmBy: string;
+  finishedAt?: string;
+  result?: string;
+  /** The record is deleted after this moment (Firestore TTL), with the family. */
+  expireAt?: string;
 }
 
 /** Where to find a share from its PayPal invoice id, so a webhook call can be matched to the right receipt. */
@@ -91,6 +116,11 @@ export interface Store {
   receipts(familyId: string): ReceiptStore;
   /** Deletes every receipt of the family (used by "Reset demo"). */
   deleteReceipts(familyId: string): Promise<void>;
+  /** The assistant's proposed actions of one family (they can only be read and changed through that family). */
+  saveAction(familyId: string, action: PendingAction): Promise<void>;
+  getAction(familyId: string, id: string): Promise<PendingAction | undefined>;
+  /** Newest first. */
+  listActions(familyId: string, limit: number): Promise<PendingAction[]>;
   /** Remembers which share a PayPal invoice belongs to. `expireAt` lets the note disappear with the family. */
   rememberInvoice(invoiceId: string, ref: InvoiceRef, expireAt?: string): Promise<void>;
   findInvoice(invoiceId: string): Promise<InvoiceRef | undefined>;
@@ -104,6 +134,7 @@ export function createMemoryStore(): Store {
   const families = new Map<string, StoredFamily>();
   const receipts = new Map<string, Map<string, StoredReceipt>>();
   const invoices = new Map<string, InvoiceRef>();
+  const actions = new Map<string, Map<string, PendingAction>>();
   const of = (familyId: string) => {
     let m = receipts.get(familyId);
     if (!m) receipts.set(familyId, (m = new Map()));
@@ -133,6 +164,22 @@ export function createMemoryStore(): Store {
     },
     async deleteReceipts(familyId) {
       receipts.delete(familyId);
+      actions.delete(familyId); // actions point at receipts, so they go with them
+    },
+    async saveAction(familyId, action) {
+      let m = actions.get(familyId);
+      if (!m) actions.set(familyId, (m = new Map()));
+      m.set(action.id, structuredClone(action));
+    },
+    async getAction(familyId, id) {
+      const a = actions.get(familyId)?.get(id);
+      return a ? structuredClone(a) : undefined;
+    },
+    async listActions(familyId, limit) {
+      return [...(actions.get(familyId)?.values() ?? [])]
+        .map((a) => structuredClone(a))
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .slice(0, limit);
     },
     async rememberInvoice(invoiceId, ref) {
       invoices.set(invoiceId, { ...ref });

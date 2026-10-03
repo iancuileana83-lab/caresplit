@@ -18,6 +18,7 @@ export function organiserView(r: StoredReceipt): ReceiptView {
       invoiceUrl: s.invoiceUrl,
       ...(s.paidOutside ? { paidOutside: { method: s.paidOutside.method, note: s.paidOutside.note } } : {}),
       ...(s.statusSource === 'webhook' && s.statusUpdatedAt ? { autoUpdatedAt: s.statusUpdatedAt } : {}),
+      ...(s.reminderSentAt ? { lastReminderAt: s.reminderSentAt } : {}),
     })),
     splitRule: r.splitRule ?? { type: 'equal' },
     ...(r.careCredit ? { careCredit: careCreditView(r) } : {}),

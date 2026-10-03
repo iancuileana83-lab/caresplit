@@ -3,7 +3,7 @@
 // login (gcloud auth application-default login); on Cloud Run it uses the service account the
 // service runs as. No keys are stored in the code.
 import { Firestore, Timestamp } from '@google-cloud/firestore';
-import { sortNewestFirst, type Store, type StoredFamily, type StoredReceipt } from './store';
+import { sortNewestFirst, type PendingAction, type Store, type StoredFamily, type StoredReceipt } from './store';
 
 export interface FirestoreStoreOptions {
   projectId: string;
@@ -51,6 +51,18 @@ export function createFirestoreStore({ projectId, databaseId = 'caresplit' }: Fi
         },
       };
     },
+    // The assistant's proposed actions live inside the family's own document, so they can only be reached through it.
+    async saveAction(familyId, action) {
+      await families.doc(familyId).collection('assistantActions').doc(action.id).set(toDoc(action));
+    },
+    async getAction(familyId, id) {
+      const snap = await families.doc(familyId).collection('assistantActions').doc(id).get();
+      return snap.exists ? fromDoc<PendingAction>(snap.data()!) : undefined;
+    },
+    async listActions(familyId, limit) {
+      const snap = await families.doc(familyId).collection('assistantActions').orderBy('createdAt', 'desc').limit(limit).get();
+      return snap.docs.map((d) => fromDoc<PendingAction>(d.data()));
+    },
     // A small top-level collection: invoice id -> where the share lives. Looked up by document id, so it
     // needs no index. Like everything else it carries `expireAt` and is deleted by the TTL policy.
     async rememberInvoice(invoiceId, ref, expireAt) {
@@ -63,9 +75,11 @@ export function createFirestoreStore({ projectId, databaseId = 'caresplit' }: Fi
       return { familyId: d.familyId, receiptId: d.receiptId, memberId: d.memberId };
     },
     async deleteReceipts(familyId) {
-      const snap = await receiptsOf(familyId).limit(500).get();
       const batch = db.batch();
-      snap.docs.forEach((d) => batch.delete(d.ref));
+      // The assistant's actions point at receipts, so they are removed together with them.
+      const [receipts, actions] = await Promise.all([receiptsOf(familyId).limit(400).get(), families.doc(familyId).collection('assistantActions').limit(100).get()]);
+      receipts.docs.forEach((d) => batch.delete(d.ref));
+      actions.docs.forEach((d) => batch.delete(d.ref));
       await batch.commit();
     },
   };

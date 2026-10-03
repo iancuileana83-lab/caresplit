@@ -166,6 +166,16 @@ export function createPayPalClient(config: PayPalConfig) {
       });
     },
 
+    /** Sends the recipient a reminder email about a sent, unpaid invoice (it stays sent and unpaid). */
+    async remind(invoiceId: string, reminder: { subject: string; note: string }): Promise<void> {
+      await call('POST', `/v2/invoicing/invoices/${encodeURIComponent(invoiceId)}/remind`, {
+        subject: reminder.subject.slice(0, 200),
+        note: reminder.note.slice(0, 4000),
+        send_to_invoicer: false,
+        send_to_recipient: true,
+      });
+    },
+
     /** Records a payment made outside PayPal (cash, bank transfer...). The invoice becomes MARKED_AS_PAID. */
     async recordPayment(invoiceId: string, payment: { method: OutsideMethod; note?: string; amountCents: number; date: string }): Promise<void> {
       await call('POST', `/v2/invoicing/invoices/${encodeURIComponent(invoiceId)}/payments`, {

@@ -2,6 +2,7 @@
 // next one starts, so a failure halfway (or a second click) never produces duplicate invoices.
 import { formatUsd } from '../shared/money';
 import { formatPercent } from '../shared/split';
+import { cleanText } from './text';
 import type { Member } from '../shared/types';
 import { mapInvoiceStatus, type OutsideMethod, type PayPalClient } from './paypal';
 import type { ReceiptStore, Store, StoredReceipt, StoredShare } from './store';
@@ -135,6 +136,33 @@ async function openShare(receiptId: string, memberId: string, verb: string, deps
     throw new ShareActionError(live === 'PAID' ? `This invoice has already been paid, so it can't be ${verb}. The receipt now shows it as paid.` : `This invoice is no longer open (${live.toLowerCase()}). The receipt now shows its real state.`, 409);
   }
   return { receipt, share, invoiceId: share.invoiceId };
+}
+
+/** At most one payment reminder per invoice a day (PayPal itself would accept several in a row). */
+export const REMINDER_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+/** The friendly message a reminder carries, so the organiser can read it before it is sent. */
+export function reminderMessage(receipt: StoredReceipt, share: StoredShare, name: string): { subject: string; note: string } {
+  const merchant = cleanText(receipt.merchant, 60);
+  return {
+    subject: `A friendly reminder about your ${merchant} share`,
+    note: `Hi ${cleanText(name, 20)}, a friendly reminder about your ${formatUsd(share.amountCents)} share of the ${merchant} receipt from ${receipt.date}. You can pay it from this invoice. Thank you!`,
+  };
+}
+
+/** Sends a polite payment reminder through PayPal for one sibling's sent, unpaid invoice. */
+export function sendReminder(receiptId: string, memberId: string, deps: InvoiceDeps, now = new Date()): Promise<StoredReceipt> {
+  return exclusive(receiptId, async () => {
+    const { receipt, share, invoiceId } = await openShare(receiptId, memberId, 'reminded', deps);
+    if (share.reminderSentAt && now.getTime() - Date.parse(share.reminderSentAt) < REMINDER_COOLDOWN_MS) {
+      throw new ShareActionError('A reminder for this invoice was already sent in the last 24 hours.', 409);
+    }
+    const name = share.memberName ?? deps.members.find((m) => m.id === memberId)?.name ?? 'there';
+    await deps.paypal.remind(invoiceId, reminderMessage(receipt, share, name));
+    share.reminderSentAt = now.toISOString();
+    await deps.store.save(receipt);
+    return receipt;
+  });
 }
 
 /** Withdraws one sibling's sent, unpaid invoice. */

@@ -35,6 +35,8 @@ export interface Share {
   paidOutside?: { method: 'CASH' | 'BANK_TRANSFER' | 'OTHER'; note?: string };
   /** When a PayPal webhook last updated this status by itself (ISO time). Absent if it was never updated that way. */
   autoUpdatedAt?: string;
+  /** When the last payment reminder was sent (ISO time), if any. */
+  lastReminderAt?: string;
 }
 
 /**
