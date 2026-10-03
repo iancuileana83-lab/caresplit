@@ -124,7 +124,12 @@ the heart of the entry. Never cut phase 10.
   demo:** a real payment through the PayPal invoice link or button as a sandbox buyer (retry
   when the sandbox is faster), to confirm that status becomes `PAID` and to feed the webhook
   tests in phase 5. Until then the demo can use "record payment" as a fallback.
-- **Cloud Run needs:** billing and APIs (Cloud Run, Artifact Registry, Firestore, Secret Manager)
+- **Cloud Run (done Oct 3):** a hello page is live at https://caresplit-30747896454.europe-west4.run.app
+  (service `caresplit`, runs as `caresplit-run`, public, max 2 instances, image in the Artifact
+  Registry repo `caresplit`, europe-west4). Do not use `/healthz` as a health path: Cloud Run's front
+  end swallows it with a 404; use `/health`. The three secrets and their per-secret access for
+  `caresplit-run` are still to be created in phase 1.
+- **Cloud Run needs (original note):** billing and APIs (Cloud Run, Artifact Registry, Firestore, Secret Manager)
   enabled on `core-invention-cvz43`; permission to deploy from GitHub Actions (workload identity
   or a service-account key kept in GitHub secrets, never in the repo).
 - **Gemini:** *(spike done Oct 3: `gemini-3.8-flash` reads the fictional receipt correctly in
