@@ -27,6 +27,7 @@ export function ReceiptList({ receipts, viewer }: { receipts: ReceiptView[]; vie
                   <span className="block truncate font-medium">{r.merchant}</span>
                   <span className="block text-xs text-quiet tabular-nums">
                     {formatDate(r.date)} · {viewer.role === 'organiser' ? formatUsd(r.totalCents ?? 0) : `Your share ${formatUsd(own?.amountCents ?? 0)}`}
+                    {r.sample && <span className="ml-1.5 rounded bg-stone-200 px-1.5 py-0.5 text-[11px] text-stone-700">Sample</span>}
                   </span>
                 </span>
                 {viewer.role === 'organiser' ? <Chip tone={summary.tone}>{summary.label}</Chip> : own && <ShareChip status={own.status} />}

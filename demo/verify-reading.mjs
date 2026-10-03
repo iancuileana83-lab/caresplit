@@ -13,7 +13,7 @@ let failures = 0;
 for (const exp of expected) {
   const image = await readFile(`demo/receipts/${exp.file}`);
   const t0 = Date.now();
-  const res = await fetch(`${server}/api/receipts/read?as=anna`, { method: 'POST', headers: { 'Content-Type': 'image/png' }, body: image });
+  const res = await fetch(`${server}/api/receipts/read?as=anna`, { method: 'POST', headers: { 'Content-Type': 'image/png', 'X-Visitor-Id': crypto.randomUUID() }, body: image });
   const ms = Date.now() - t0;
   if (!res.ok) {
     failures++;

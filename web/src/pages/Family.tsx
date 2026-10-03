@@ -1,8 +1,29 @@
+import { LoaderCircle, RotateCcw } from 'lucide-react';
+import { useState } from 'react';
 import { Card } from '../components/Card';
+import { ConfirmDialog } from '../components/ConfirmDialog';
+import { ApiError, postJson } from '../lib/api';
 import { useViewAs } from '../lib/view-as';
 
 export function Family() {
   const { family, viewer } = useViewAs();
+  const [confirming, setConfirming] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function reset() {
+    setConfirming(false);
+    setResetting(true);
+    setError(null);
+    try {
+      await postJson(`/api/demo/reset?as=${viewer.id}`);
+      window.location.assign('/'); // a full reload, so every screen starts from the fresh family
+    } catch (err) {
+      setResetting(false);
+      setError(err instanceof ApiError ? err.message : 'Something went wrong.');
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div>
@@ -27,6 +48,37 @@ export function Family() {
           ))}
         </ul>
       </Card>
+
+      <section aria-label="Demo">
+        <h2 className="mb-2 text-sm font-semibold">Your demo</h2>
+        <Card>
+          <p className="text-sm text-quiet">
+            This family is yours alone: other visitors cannot see your receipts, and it is deleted by itself after a week. Start over with fresh
+            sample receipts at any time. Invoices already sent in PayPal's sandbox stay there.
+          </p>
+          {viewer.role === 'organiser' ? (
+            <button
+              type="button"
+              onClick={() => setConfirming(true)}
+              className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl border border-line px-4 text-sm font-medium hover:bg-stone-50"
+            >
+              {resetting ? <LoaderCircle size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <RotateCcw size={16} aria-hidden="true" />}
+              {resetting ? 'Resetting…' : 'Reset demo'}
+            </button>
+          ) : (
+            <p className="mt-3 text-sm text-quiet">Switch to {family.members.find((m) => m.role === 'organiser')?.name} to reset the demo.</p>
+          )}
+          {error && (
+            <p role="alert" className="mt-2 text-sm text-red-700">
+              {error}
+            </p>
+          )}
+        </Card>
+      </section>
+
+      <ConfirmDialog open={confirming} title="Reset the demo?" confirmLabel="Reset demo" onConfirm={() => void reset()} onCancel={() => setConfirming(false)}>
+        <p>Your receipts are removed and the family goes back to the three sample receipts. This cannot be undone.</p>
+      </ConfirmDialog>
     </div>
   );
 }

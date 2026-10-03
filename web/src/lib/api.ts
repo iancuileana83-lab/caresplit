@@ -1,10 +1,5 @@
 import { useEffect, useState } from 'react';
-
-export async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(path);
-  if (!res.ok) throw new Error(`Request failed (${res.status})`);
-  return (await res.json()) as T;
-}
+import { apiHeaders } from './visitor';
 
 export class ApiError extends Error {
   constructor(
@@ -15,13 +10,27 @@ export class ApiError extends Error {
   }
 }
 
+export async function getJson<T>(path: string): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(path, { headers: apiHeaders() });
+  } catch {
+    throw new ApiError("Couldn't reach the server. Check your connection and try again.", 0);
+  }
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new ApiError(data?.error ?? `Request failed (${res.status})`, res.status);
+  }
+  return (await res.json()) as T;
+}
+
 /** POSTs JSON (or nothing) and returns the JSON answer. Errors carry the server's friendly message. */
 export async function postJson<T>(path: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
     res = await fetch(path, {
       method: 'POST',
-      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      headers: apiHeaders(body === undefined ? {} : { 'Content-Type': 'application/json' }),
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {

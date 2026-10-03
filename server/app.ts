@@ -1,20 +1,21 @@
 import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import Fastify from 'fastify';
+import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { splitEqual } from '../shared/money';
-import type { Member } from '../shared/types';
-import { family, findMember, memberEmails } from './demo-data';
+import type { FamilyView, Member } from '../shared/types';
+import { accountEmail } from './demo-data';
+import { getOrCreateFamily, resetFamily, VISITOR_ID } from './families';
 import { ReadError, type ReceiptReader } from './gemini';
 import { refreshStatuses, sendInvoices, type InvoiceDeps } from './invoices';
 import type { LimitResult } from './limits';
 import type { PayPalClient } from './paypal';
-import type { ReceiptStore, StoredReceipt } from './store';
+import type { ReceiptStore, Store, StoredFamily, StoredReceipt } from './store';
 import { parseNewReceipt } from './validate';
 import { organiserView, viewOf, viewsFor } from './views';
 
 export interface AppOptions {
-  store: ReceiptStore;
+  store: Store;
   /** Folder with the built web app. When it exists, it is served and unknown pages fall back to index.html. */
   staticDir?: string;
   /** Reads a receipt photo. Missing means "not set up" and the endpoint answers 503. */
@@ -27,6 +28,8 @@ export interface AppOptions {
   paypalLimiter?: (ip: string) => LimitResult;
   /** Called once per "save receipt" request, so nobody can fill the database with junk. */
   writeLimiter?: (ip: string) => LimitResult;
+  /** Called when a brand-new visitor family would be created, with the visitor's address. */
+  familyLimiter?: (ip: string) => LimitResult;
 }
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -34,7 +37,9 @@ const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const limitMessage = (limit: Extract<LimitResult, { ok: false }>, what: string) =>
   limit.reason === 'daily' ? `The demo has reached its daily limit for ${what}. Try again tomorrow.` : `Too many requests in a short time. Wait a minute and try again.`;
 
-export async function buildApp({ store, staticDir, reader, paypal, limiter, paypalLimiter, writeLimiter }: AppOptions) {
+const publicFamily = (f: StoredFamily): FamilyView => ({ name: f.name, members: f.members.map((m) => ({ id: m.id, name: m.name, role: m.role })) });
+
+export async function buildApp({ store, staticDir, reader, paypal, limiter, paypalLimiter, writeLimiter, familyLimiter }: AppOptions) {
   // Behind Cloud Run the real visitor address is the last entry of X-Forwarded-For (added by
   // Google's front end). Trust exactly one proxy, so a visitor cannot dodge the rate limits by
   // sending their own X-Forwarded-For header.
@@ -45,91 +50,141 @@ export async function buildApp({ store, staticDir, reader, paypal, limiter, payp
 
   app.get('/api/health', async () => ({ ok: true }));
 
-  // The demo has no login. `as` is the member picked in the "View as" switcher (phase 1 only;
-  // real per-user data isolation arrives in phase 2).
-  const viewerFrom = (query: unknown): Member | undefined => {
-    const as = (query as { as?: string } | undefined)?.as ?? 'anna';
-    return findMember(as);
-  };
+  interface Context {
+    family: StoredFamily;
+    receipts: ReceiptStore;
+    /** The member picked in the "View as" switcher. */
+    viewer: Member;
+  }
 
-  const invoiceDeps = (paypalClient: PayPalClient): InvoiceDeps => ({ store, paypal: paypalClient, members: family.members, emailOf: (id) => memberEmails[id] });
+  // Every other call belongs to one visitor's family, named by the X-Visitor-Id header. A new
+  // visitor gets a fresh sample family. `as` is the member picked in the "View as" switcher: the
+  // demo has no login, so it is a convenience, not a security boundary.
+  async function contextOf(req: FastifyRequest, reply: FastifyReply): Promise<Context | undefined> {
+    const visitorId = String(req.headers['x-visitor-id'] ?? '');
+    if (!VISITOR_ID.test(visitorId)) {
+      void reply.code(400).send({ error: 'Missing or invalid visitor id' });
+      return undefined;
+    }
+    let family = await store.getFamily(visitorId);
+    if (!family) {
+      const limit = familyLimiter?.(req.ip) ?? { ok: true as const };
+      if (!limit.ok) {
+        void reply.code(429).send({ error: limitMessage(limit, 'starting new demo families'), code: limit.reason });
+        return undefined;
+      }
+      family = await getOrCreateFamily(store, visitorId);
+    }
+    const as = (req.query as { as?: string } | undefined)?.as ?? family.members.find((m) => m.role === 'organiser')!.id;
+    const viewer = family.members.find((m) => m.id === as);
+    if (!viewer) {
+      void reply.code(400).send({ error: 'Unknown family member' });
+      return undefined;
+    }
+    return { family, receipts: store.receipts(visitorId), viewer: { id: viewer.id, name: viewer.name, role: viewer.role } };
+  }
 
-  app.get('/api/family', async () => family);
+  const invoiceDeps = (c: Context, paypalClient: PayPalClient): InvoiceDeps => ({
+    store: c.receipts,
+    paypal: paypalClient,
+    members: c.family.members.map((m) => ({ id: m.id, name: m.name, role: m.role })),
+    emailOf: (id) => accountEmail(c.family.members.find((m) => m.id === id)?.accountId),
+  });
+
+  app.get('/api/family', async (req, reply) => {
+    const c = await contextOf(req, reply);
+    return c ? publicFamily(c.family) : undefined;
+  });
+
+  // Back to a fresh sample family (organiser only). Invoices already sent in the PayPal sandbox stay there.
+  app.post('/api/demo/reset', async (req, reply) => {
+    const c = await contextOf(req, reply);
+    if (!c) return;
+    if (c.viewer.role !== 'organiser') return reply.code(403).send({ error: 'Only the organiser can reset the demo' });
+    const limit = writeLimiter?.(req.ip) ?? { ok: true as const };
+    if (!limit.ok) return reply.code(429).send({ error: limitMessage(limit, 'resetting the demo'), code: limit.reason });
+    return publicFamily(await resetFamily(store, c.family.id));
+  });
 
   app.get('/api/receipts', async (req, reply) => {
-    const viewer = viewerFrom(req.query);
-    if (!viewer) return reply.code(400).send({ error: 'Unknown family member' });
-    return viewsFor(await store.list(), viewer);
+    const c = await contextOf(req, reply);
+    if (!c) return;
+    return viewsFor(await c.receipts.list(), c.viewer);
   });
 
   app.get('/api/receipts/:id', async (req, reply) => {
-    const viewer = viewerFrom(req.query);
-    if (!viewer) return reply.code(400).send({ error: 'Unknown family member' });
+    const c = await contextOf(req, reply);
+    if (!c) return;
     const { id } = req.params as { id: string };
-    const receipt = await store.get(id);
-    const view = receipt && viewOf(receipt, viewer);
+    const receipt = await c.receipts.get(id);
+    const view = receipt && viewOf(receipt, c.viewer);
     if (!view) return reply.code(404).send({ error: 'Receipt not found' });
     return view;
   });
 
   // Saves a confirmed receipt with its equal split. Nothing is sent to PayPal yet.
   app.post('/api/receipts', async (req, reply) => {
-    const viewer = viewerFrom(req.query);
-    if (!viewer) return reply.code(400).send({ error: 'Unknown family member' });
-    if (viewer.role !== 'organiser') return reply.code(403).send({ error: 'Only the organiser can add receipts' });
+    const c = await contextOf(req, reply);
+    if (!c) return;
+    if (c.viewer.role !== 'organiser') return reply.code(403).send({ error: 'Only the organiser can add receipts' });
     const parsed = parseNewReceipt(req.body);
     if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
     const limit = writeLimiter?.(req.ip) ?? { ok: true as const };
     if (!limit.ok) return reply.code(429).send({ error: limitMessage(limit, 'saving receipts'), code: limit.reason });
 
     const input = parsed.value;
-    const parts = splitEqual(input.totalCents, family.members.map((m) => m.id), viewer.id);
+    const parts = splitEqual(input.totalCents, c.family.members.map((m) => m.id), c.viewer.id);
     const receipt: StoredReceipt = {
       id: randomUUID(),
       ...input,
-      payerId: viewer.id,
-      payerShareCents: parts.find((p) => p.memberId === viewer.id)?.amountCents ?? 0,
-      shares: parts.filter((p) => p.memberId !== viewer.id).map((p) => ({ memberId: p.memberId, amountCents: p.amountCents, status: 'DRAFT' as const })),
+      payerId: c.viewer.id,
+      payerShareCents: parts.find((p) => p.memberId === c.viewer.id)?.amountCents ?? 0,
+      shares: parts.filter((p) => p.memberId !== c.viewer.id).map((p) => ({ memberId: p.memberId, amountCents: p.amountCents, status: 'DRAFT' as const })),
       createdAt: new Date().toISOString(),
+      expireAt: c.family.expireAt,
     };
-    await store.save(receipt);
+    await c.receipts.save(receipt);
     return reply.code(201).send(organiserView(receipt));
   });
 
   // Creates and sends the PayPal invoices that have not been sent yet.
   app.post('/api/receipts/:id/send', async (req, reply) => {
-    const viewer = viewerFrom(req.query);
-    if (!viewer) return reply.code(400).send({ error: 'Unknown family member' });
-    if (viewer.role !== 'organiser') return reply.code(403).send({ error: 'Only the organiser can send invoices' });
+    const c = await contextOf(req, reply);
+    if (!c) return;
+    if (c.viewer.role !== 'organiser') return reply.code(403).send({ error: 'Only the organiser can send invoices' });
     if (!paypal) return reply.code(503).send({ error: 'PayPal is not set up on this server', code: 'not_configured' });
     const limit = paypalLimiter?.(req.ip) ?? { ok: true as const };
     if (!limit.ok) return reply.code(429).send({ error: limitMessage(limit, 'sending invoices'), code: limit.reason });
 
     const { id } = req.params as { id: string };
-    if (!(await store.get(id))) return reply.code(404).send({ error: 'Receipt not found' });
-    const { receipt, failed } = await sendInvoices(id, invoiceDeps(paypal));
+    const existing = await c.receipts.get(id);
+    if (!existing) return reply.code(404).send({ error: 'Receipt not found' });
+    if (existing.sample) return reply.code(400).send({ error: 'Sample receipts have no invoices to send' });
+    const { receipt, failed } = await sendInvoices(id, invoiceDeps(c, paypal));
     return { receipt: organiserView(receipt), failed };
   });
 
   // Reads each invoice's current status from PayPal.
   app.post('/api/receipts/:id/refresh', async (req, reply) => {
-    const viewer = viewerFrom(req.query);
-    if (!viewer) return reply.code(400).send({ error: 'Unknown family member' });
-    if (viewer.role !== 'organiser') return reply.code(403).send({ error: 'Only the organiser can refresh statuses' });
+    const c = await contextOf(req, reply);
+    if (!c) return;
+    if (c.viewer.role !== 'organiser') return reply.code(403).send({ error: 'Only the organiser can refresh statuses' });
     if (!paypal) return reply.code(503).send({ error: 'PayPal is not set up on this server', code: 'not_configured' });
     const limit = paypalLimiter?.(req.ip) ?? { ok: true as const };
     if (!limit.ok) return reply.code(429).send({ error: limitMessage(limit, 'checking invoices'), code: limit.reason });
 
     const { id } = req.params as { id: string };
-    if (!(await store.get(id))) return reply.code(404).send({ error: 'Receipt not found' });
-    const { receipt, failed } = await refreshStatuses(id, invoiceDeps(paypal));
+    const existing = await c.receipts.get(id);
+    if (!existing) return reply.code(404).send({ error: 'Receipt not found' });
+    if (existing.sample) return reply.code(400).send({ error: 'Sample receipts have no invoices to check' });
+    const { receipt, failed } = await refreshStatuses(id, invoiceDeps(c, paypal));
     return { receipt: organiserView(receipt), failed };
   });
 
   app.post('/api/receipts/read', async (req, reply) => {
-    const viewer = viewerFrom(req.query);
-    if (!viewer) return reply.code(400).send({ error: 'Unknown family member' });
-    if (viewer.role !== 'organiser') return reply.code(403).send({ error: 'Only the organiser can add receipts' });
+    const c = await contextOf(req, reply);
+    if (!c) return;
+    if (c.viewer.role !== 'organiser') return reply.code(403).send({ error: 'Only the organiser can add receipts' });
     if (!reader) return reply.code(503).send({ error: 'Receipt reading is not set up on this server', code: 'not_configured' });
 
     const image = req.body;

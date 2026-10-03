@@ -1,4 +1,5 @@
 import type { ReceiptReading } from '../../../shared/receipt-check';
+import { apiHeaders } from './visitor';
 
 export class ReadFailure extends Error {
   constructor(
@@ -15,7 +16,7 @@ export async function readReceiptImage(image: Blob, viewerId: string): Promise<R
   try {
     res = await fetch(`/api/receipts/read?as=${encodeURIComponent(viewerId)}`, {
       method: 'POST',
-      headers: { 'Content-Type': image.type || 'image/jpeg' },
+      headers: apiHeaders({ 'Content-Type': image.type || 'image/jpeg' }),
       body: image,
     });
   } catch {

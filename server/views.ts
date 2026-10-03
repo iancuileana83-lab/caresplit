@@ -11,6 +11,7 @@ export function organiserView(r: StoredReceipt): ReceiptView {
     totalCents: r.totalCents,
     payerShareCents: r.payerShareCents,
     shares: r.shares.map((s) => ({ memberId: s.memberId, amountCents: s.amountCents, status: s.status, invoiceUrl: s.invoiceUrl })),
+    ...(r.sample ? { sample: true } : {}),
   };
 }
 
@@ -23,7 +24,7 @@ export function viewOf(r: StoredReceipt, viewer: Member): ReceiptView | undefine
   if (viewer.role === 'organiser') return full;
   const own = full.shares.filter((s) => s.memberId === viewer.id);
   if (own.length === 0) return undefined;
-  return { id: full.id, merchant: full.merchant, date: full.date, payerId: full.payerId, shares: own };
+  return { id: full.id, merchant: full.merchant, date: full.date, payerId: full.payerId, shares: own, ...(full.sample ? { sample: true } : {}) };
 }
 
 export function viewsFor(receipts: StoredReceipt[], viewer: Member): ReceiptView[] {

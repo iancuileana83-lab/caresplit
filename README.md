@@ -50,6 +50,9 @@ server running, `node demo/verify-reading.mjs` checks the six sample receipts ag
   read (and that the user confirmed) are saved. Because the photo does go to Gemini, do not upload
   real receipts, and note that Google's terms for the free Gemini API tier allow it to use inputs to
   improve its products.
+- Every visitor gets a private demo family, named by a random id kept in their own browser.
+  Other visitors cannot see it, and it is meant to be deleted automatically after seven days.
+  There is no login: the id works like a private link, so do not share your browser's data.
 - No medical advice is given and no health information is kept: the reading is asked to ignore
   patient names, prescriptions and doses.
 - PayPal runs in the **sandbox** only; the app refuses to start talking to live PayPal.

@@ -32,6 +32,8 @@ export interface ReceiptView {
   /** The organiser's own part (not invoiced). Only sent to the organiser. */
   payerShareCents?: number;
   shares: Share[];
+  /** Part of the built-in sample history: no real PayPal invoice exists for it. */
+  sample?: boolean;
 }
 
 export interface FamilyView {

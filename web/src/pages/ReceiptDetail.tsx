@@ -48,8 +48,9 @@ export function ReceiptDetail() {
 
   const receipt = fresh ?? (state.status === 'ready' ? state.data : null);
   const organiser = viewer.role === 'organiser';
-  const hasUnsent = receipt?.shares.some((s) => s.status === 'DRAFT') ?? false;
-  const hasSent = receipt?.shares.some((s) => s.status !== 'DRAFT') ?? false;
+  const real = receipt !== null && !receipt.sample; // samples have no PayPal invoices to send or refresh
+  const hasUnsent = real && receipt.shares.some((s) => s.status === 'DRAFT');
+  const hasSent = real && receipt.shares.some((s) => s.status !== 'DRAFT');
 
   async function act(kind: 'send' | 'refresh') {
     setBusy(kind);
@@ -90,6 +91,12 @@ export function ReceiptDetail() {
               {formatLongDate(receipt.date)} · paid at the pharmacy by {nameOf(receipt.payerId)}
             </p>
           </section>
+
+          {receipt.sample && (
+            <div role="note" className="rounded-xl bg-stone-200 px-3 py-2.5 text-sm text-stone-800">
+              This is a sample receipt that came with the demo family. No PayPal invoices exist for it.
+            </div>
+          )}
 
           {notice && (
             <div role="status" className={`rounded-xl px-3 py-2.5 text-sm ${notice.tone === 'ok' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-900'}`}>

@@ -76,7 +76,7 @@ the heart of the entry. Never cut phase 10.
 |---|-------|--------|
 | 0 | Setup and spikes | done (the Orders/Checkout spike moves to the start of phase 4) |
 | 1 | Walking skeleton: receipt → split → PayPal invoice → status | done, live on Cloud Run (Oct 3) |
-| 2 | Complete core: family rules, receipts list, solid errors, demo data | next |
+| 2 | Complete core: family rules, receipts list, solid errors, demo data | in progress. Step 1 done (not deployed yet): a private demo family per visitor with sample history and "Reset demo". Next: editable family (2 to 4 members, sandbox accounts from a list, equal or percentage split), filters, cancel and "paid outside PayPal", polish and browser tests |
 | 3 | First submission package (submit early) | planned |
 | 4 | Pay your share in the app (Checkout, Orders API) | planned |
 | 5 | PayPal webhooks: automatic status | planned |
@@ -224,6 +224,21 @@ boundary, free-tier Gemini quota is small (see the quota finding above).
   invoice, mark a share as "paid outside PayPal" with a note.
 - Mobile-first, accessible UI (labels, contrast, keyboard use), clear "amounts only, no medical
   advice" notice.
+
+**Decisions (Oct 3):** invoice addresses are chosen from a fixed list of PayPal sandbox buyer
+accounts, never typed (so no real person's address can be used); families have 2 to 4 members (a
+fourth sandbox Personal US account is needed for that); each family is deleted automatically 7 days
+after it is created (Firestore TTL on `expireAt`; the policy is a separate Google Cloud change that
+needs the owner's OK).
+
+**Step 1 built (Oct 3):** each browser makes up a random visitor id (kept in local storage and sent
+as `X-Visitor-Id`) that names its own family in Firestore (`families/{visitorId}` with a `receipts`
+subcollection). A new visitor gets the Rowan family with three sample receipts dated relative to
+today, marked "Sample" and without invoices; "Reset demo" (Family screen, organiser only) removes
+their receipts and restores the family. Creating new families has its own per-address limit. Every
+saved document carries `expireAt`. 73 automated tests, including: visitors never see each other's
+receipts (404), a missing or malformed id is refused, reset leaves other visitors alone. Honest
+limit: the visitor id is a bearer secret in the browser, not a login.
 
 **Tested by**
 - Unit tests for custom percentages (sum 100, rounding, one member at 0 %).

@@ -40,7 +40,7 @@ export function ViewAsProvider({ children }: { children: ReactNode }) {
   if (familyState.status === 'error') {
     return (
       <p className="p-8 text-center text-red-700" role="alert">
-        Couldn't load your family. Reload the page to try again.
+        Couldn't load your family: {familyState.message} Reload the page to try again.
       </p>
     );
   }
