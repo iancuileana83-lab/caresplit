@@ -1,4 +1,4 @@
-import { Home, Receipt, Users, WifiOff } from 'lucide-react';
+import { Home, Receipt, Sparkles, Users, WifiOff } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useOnline } from '../lib/online';
@@ -9,6 +9,7 @@ import { ViewAsSwitch } from './ViewAsSwitch';
 const tabs = [
   { to: '/', label: 'Home', icon: Home, end: true },
   { to: '/receipts', label: 'Receipts', icon: Receipt, end: false },
+  { to: '/assistant', label: 'Assistant', icon: Sparkles, end: false },
   { to: '/family', label: 'Family', icon: Users, end: false },
 ];
 
@@ -18,6 +19,7 @@ function titleFor(pathname: string): string {
   if (pathname.startsWith('/receipts/')) return 'Receipt';
   if (pathname === '/receipts') return 'Receipts';
   if (pathname === '/family') return 'Family';
+  if (pathname === '/assistant') return 'Assistant';
   if (pathname === '/add') return 'Add receipt';
   if (pathname === '/add/split') return 'Split and send';
   return 'Page not found';

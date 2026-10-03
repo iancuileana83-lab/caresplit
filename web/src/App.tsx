@@ -4,6 +4,7 @@ import { Card } from './components/Card';
 import { EmptyState } from './components/EmptyState';
 import { Layout } from './components/Layout';
 import { AddReceipt } from './pages/AddReceipt';
+import { Assistant } from './pages/Assistant';
 import { Dashboard } from './pages/Dashboard';
 import { Family } from './pages/Family';
 import { ReceiptDetail } from './pages/ReceiptDetail';
@@ -29,6 +30,7 @@ export function App() {
         <Route path="receipts/:id" element={<ReceiptDetail />} />
         <Route path="add" element={<AddReceipt />} />
         <Route path="add/split" element={<SplitPreview />} />
+        <Route path="assistant" element={<Assistant />} />
         <Route path="family" element={<Family />} />
         <Route path="*" element={<NotFound />} />
       </Route>
