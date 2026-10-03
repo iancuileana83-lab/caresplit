@@ -79,7 +79,7 @@ the heart of the entry. Never cut phase 10.
 | 2 | Complete core: family rules, receipts list, solid errors, demo data | built and **live** (Oct 3, Cloud Run revision `caresplit-00004-pxj`; the 7-day TTL policy on `expireAt` is created for `families` and `receipts`): a private demo family per visitor with sample history and "Reset demo"; an editable family (2 to 4 members, sandbox accounts from a list, equal or percentage split, per-receipt override); receipt filters with totals; cancel an invoice and mark a share as paid outside PayPal; friendly errors and empty states. 128 automated tests, 26 live checks. **Step 2d "Care credit" level 1 is built (not deployed yet)** |
 | 3 | First submission package (submit early) | planned |
 | 4 | Pay your share in the app (Checkout, Orders API) | planned, after the real-payment test of the webhooks |
-| 5 | PayPal webhooks: automatic status | built and committed, done first (ahead of 4); waits for the owner to register the webhook in PayPal and for the deploy |
+| 5 | PayPal webhooks: automatic status | built, deployed (revision `caresplit-00006-vcd`) and registered in the PayPal sandbox; waiting for the real-payment test as Ben |
 | 6 | AI chat assistant over the family's data | planned |
 | 7 | AI checks: duplicates, high amounts, late payers | planned |
 | 8 | AI-written payment reminders | planned |
@@ -409,9 +409,17 @@ the receipt, receipts and dashboard screens check again every 10 to 15 s while a
 payment shows up on screen without a click. Tested: 179 automated tests (a fake PayPal for the full
 paths, including a forged call, a retried event, an event that lies, PayPal down, a bad body, an oversized body,
 two families); and against the **real sandbox**: a forged call is answered 401 because PayPal does not confirm it.
-Still to do with the owner: create the webhook in the PayPal app, set `PAYPAL_WEBHOOK_ID`, a TTL policy for
-the `invoices` collection, deploy, then a real payment as Ben (the only test that proves PayPal's real signed
-call is accepted).
+**Registered and deployed.** The PayPal dashboard would not load for the owner, so the webhook was created through
+the API (`spikes/webhook-register.mjs`: lists the app's webhooks first, reuses one with the same URL instead of
+doubling it, creates it otherwise, and writes the id into the git-ignored `.env`; none existed, so it was
+created with exactly the four invoice events). Image `caresplit:phase4`, revision `caresplit-00006-vcd`, with
+`PAYPAL_WEBHOOK_ID` as a plain setting (an identifier, not a secret); TTL policy on the `invoices` collection
+(`CREATING`, then active). Checked on the live link: a forged call is refused with 401 (so the webhook is on and
+PayPal does the checking), a call without the headers or with a body that is not JSON with 400, a plain
+visit with 404; the 26 earlier and 16 care-credit live checks still pass. Invoices sent *before* this deploy are
+not in the invoice index, so only invoices sent from revision 00006 on update by themselves (older ones still
+work with "Refresh status"). Still to do: a real payment as Ben, the only test that proves PayPal's real signed
+call is accepted.
 
 **Delivers**
 - A public webhook endpoint on Cloud Run, registered in the sandbox app, for invoice paid,
