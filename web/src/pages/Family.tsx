@@ -1,11 +1,13 @@
 import { CircleAlert, CircleCheck, LoaderCircle, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { useState } from 'react';
-import type { SplitRule } from '../../../shared/split';
+import { formatPercent, type SplitRule } from '../../../shared/split';
 import { MAX_MEMBERS, MIN_MEMBERS, type FamilyView } from '../../../shared/types';
 import { Card } from '../components/Card';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { CareCreditEditor } from '../components/CareCreditEditor';
 import { ruleProblem, SplitRuleEditor } from '../components/SplitRuleEditor';
 import { ApiError, postJson, putJson } from '../lib/api';
+import { careProblem, carePayload, toCareForm, type CareForm } from '../lib/care-form';
 import { useViewAs } from '../lib/view-as';
 
 /** One row of the form. Saved members keep their id as the key; a new member gets a temporary key. */
@@ -22,6 +24,7 @@ interface Form {
   name: string;
   rows: Row[];
   rule: SplitRule;
+  care: CareForm;
 }
 
 const SUGGESTED_NAMES = ['David', 'Eve', 'Frank', 'Grace'];
@@ -32,6 +35,7 @@ function toForm(family: FamilyView): Form {
     name: family.name,
     rows: family.members.map((m) => ({ key: m.id, id: m.id, name: m.name, accountId: m.accountId, role: m.role })),
     rule: family.splitRule,
+    care: toCareForm(family.careCredit, family.members.find((m) => m.role !== 'organiser')?.id ?? family.members[0].id),
   };
 }
 
@@ -50,6 +54,7 @@ function toPayload(form: Form) {
     name: form.name,
     members: form.rows.map((r) => ({ ...(r.id ? { id: r.id } : {}), name: r.name, role: r.role, accountId: r.accountId })),
     splitRule: rule,
+    careCredit: carePayload(form.care, (key) => keyToRuleKey.get(key) ?? key),
   };
 }
 
@@ -63,6 +68,8 @@ function problemsOf(form: Form, family: FamilyView): string[] {
   if (new Set(accounts).size !== accounts.length) problems.push('Each person needs a different PayPal sandbox account.');
   const rule = ruleProblem(form.rule, form.rows.map((r) => ({ key: r.key, name: r.name })));
   if (rule) problems.push(rule);
+  const care = careProblem(form.care, form.rows.map((r) => r.key));
+  if (care) problems.push(care);
   if (!family.accounts.length) problems.push('No PayPal sandbox accounts are available.');
   return problems;
 }
@@ -110,7 +117,9 @@ export function Family() {
       const { [key]: _gone, ...rest } = rule.basisPoints;
       rule = { type: 'percent', basisPoints: rest };
     }
-    change({ rows, rule });
+    // If the main caregiver leaves, the credit needs a new caregiver (the organiser can choose again).
+    const care = form.care.caregiverKey === key ? { ...form.care, caregiverKey: rows.find((r) => r.role !== 'organiser')?.key ?? rows[0].key } : form.care;
+    change({ rows, rule, care });
   }
 
   async function save() {
@@ -155,6 +164,12 @@ export function Family() {
 
       {!organiser ? (
         <>
+          {family.careCredit && (
+            <p className="rounded-xl bg-teal-50 px-3 py-2.5 text-sm text-teal-900">
+              Care credit: {family.members.find((m) => m.id === family.careCredit?.caregiverId)?.name ?? 'The main caregiver'} gives time to care, so their share is{' '}
+              {formatPercent(family.careCredit.basisPoints)}% lower and the others share the difference.
+            </p>
+          )}
           <Card className="py-1">
             <ul className="divide-y divide-line">
               {family.members.map((m) => (
@@ -259,6 +274,13 @@ export function Family() {
               <p className="mt-3 text-xs text-quiet">
                 This is the default for new receipts. You can pick a different split for one receipt before sending. The organiser takes any odd cents.
               </p>
+            </Card>
+          </section>
+
+          <section aria-label="Care credit">
+            <h2 className="mb-2 text-sm font-semibold">Care credit</h2>
+            <Card>
+              <CareCreditEditor value={form.care} onChange={(care) => change({ care })} members={ruleMembers} rule={form.rule} />
             </Card>
           </section>
 

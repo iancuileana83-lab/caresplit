@@ -1,7 +1,36 @@
 import { describe, expect, it } from 'vitest';
 import type { ReceiptView, ShareStatus } from '../../../shared/types';
 import { applyFilters, describeFilters, filtersToParams, isFiltered, monthsIn, NO_FILTERS, parseFilters } from './filters';
-import { receiptGroup, receiptSummary, sumShares, sumSpent } from './receipts';
+import { careCreditTotals, receiptGroup, receiptSummary, sumShares, sumSpent } from './receipts';
+
+describe('careCreditTotals', () => {
+  const credited = (id: string, who: string, name: string, creditCents: number): ReceiptView => ({
+    id,
+    merchant: id,
+    date: '2026-10-02',
+    payerId: 'anna',
+    totalCents: 1000,
+    shares: [],
+    careCredit: { caregiverId: who, caregiverName: name, basisPoints: 2500, creditCents },
+  });
+
+  it('adds up the credit per caregiver and counts the receipts', () => {
+    const list = [credited('a', 'ben', 'Ben', 389), credited('b', 'ben', 'Ben', 111), credited('c', 'clara', 'Clara', 50), receiptPlain()];
+    expect(careCreditTotals(list)).toEqual([
+      { caregiverId: 'ben', name: 'Ben', creditCents: 500, receipts: 2 },
+      { caregiverId: 'clara', name: 'Clara', creditCents: 50, receipts: 1 },
+    ]);
+  });
+
+  it('is empty when no receipt has a credit', () => {
+    expect(careCreditTotals([receiptPlain()])).toEqual([]);
+    expect(careCreditTotals([])).toEqual([]);
+  });
+
+  function receiptPlain(): ReceiptView {
+    return { id: 'p', merchant: 'p', date: '2026-10-01', payerId: 'anna', totalCents: 500, shares: [] };
+  }
+});
 
 const receipt = (id: string, date: string, total: number, statuses: ShareStatus[]): ReceiptView => ({
   id,

@@ -177,6 +177,11 @@ export function ReceiptDetail() {
                 <span className="text-quiet">Total</span>
                 <span className="text-xl font-semibold tabular-nums">{formatUsd(receipt.totalCents)}</span>
               </div>
+              {receipt.careCredit && (
+                <p className="mt-1 text-sm text-teal-800">
+                  Care credit: {receipt.careCredit.caregiverName} pays {formatUsd(receipt.careCredit.creditCents)} less than their normal share ({formatPercent(receipt.careCredit.basisPoints)}% credit).
+                </p>
+              )}
               {receipt.splitRule && (
                 <p className="mt-1 text-sm text-quiet">
                   {receipt.splitRule.type === 'equal'
@@ -188,6 +193,13 @@ export function ReceiptDetail() {
                 </p>
               )}
             </Card>
+          )}
+
+          {!organiser && receipt.careCredit && receipt.careCredit.caregiverId === viewer.id && (
+            <div role="note" className="rounded-xl bg-teal-50 px-3 py-2.5 text-sm text-teal-900">
+              <p className="font-medium">Thank you for the time you give.</p>
+              <p>Your share is {formatUsd(receipt.careCredit.creditCents)} lower on this receipt because of your care credit.</p>
+            </div>
           )}
 
           <section>

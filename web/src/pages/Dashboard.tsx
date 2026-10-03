@@ -1,19 +1,21 @@
-import { Camera } from 'lucide-react';
+import { Camera, HeartHandshake } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { formatPercent } from '../../../shared/split';
 import type { ReceiptView } from '../../../shared/types';
-import { ErrorNote, LoadingNote, Metric } from '../components/Card';
+import { Card, ErrorNote, LoadingNote, Metric } from '../components/Card';
 import { ReceiptList } from '../components/ReceiptList';
 import { useApi } from '../lib/api';
-import { formatUsd, sumShares, sumSpent } from '../lib/receipts';
+import { careCreditTotals, formatUsd, sumShares, sumSpent } from '../lib/receipts';
 import { useViewAs } from '../lib/view-as';
 
 export function Dashboard() {
-  const { viewer } = useViewAs();
+  const { family, viewer } = useViewAs();
   const state = useApi<ReceiptView[]>(`/api/receipts?as=${viewer.id}`);
   if (state.status === 'loading') return <LoadingNote />;
   if (state.status === 'error') return <ErrorNote message={state.message} onRetry={state.retry} />;
 
   const receipts = state.data;
+  const careTotals = careCreditTotals(receipts);
   const { openCents, paidCents } = sumShares(receipts);
   const organiser = viewer.role === 'organiser';
 
@@ -38,6 +40,35 @@ export function Dashboard() {
           </>
         )}
       </section>
+
+      {(careTotals.length > 0 || (organiser && family.careCredit)) && (
+        <section aria-label="Care credit">
+          <Card className="space-y-1.5">
+            <h2 className="flex items-center gap-1.5 text-sm font-semibold">
+              <HeartHandshake size={16} className="text-teal-700" aria-hidden="true" />
+              Care credit
+            </h2>
+            {organiser && family.careCredit && (
+              <p className="text-sm text-quiet">
+                On for {family.members.find((m) => m.id === family.careCredit?.caregiverId)?.name ?? 'the main caregiver'} at {formatPercent(family.careCredit.basisPoints)}%. It is applied to new receipts unless you switch it off for one.
+              </p>
+            )}
+            {careTotals.length > 0 ? (
+              <ul className="text-sm">
+                {careTotals.map((t) => (
+                  <li key={t.caregiverId}>
+                    {organiser ? `${t.name}: ` : 'So far: '}
+                    <span className="font-medium tabular-nums">{formatUsd(t.creditCents)}</span> across {t.receipts} receipt{t.receipts === 1 ? '' : 's'}
+                    {!organiser && '. Thank you for the time you give.'}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-quiet">No care credit has been applied yet.</p>
+            )}
+          </Card>
+        </section>
+      )}
 
       <section>
         <div className="mb-2 flex items-baseline justify-between">

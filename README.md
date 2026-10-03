@@ -30,7 +30,7 @@ sibling who usually pays at the pharmacy; the others are the **siblings** who ow
 1. **Photograph a receipt** (or pick one of six built-in fictional samples).
 2. **AI reads it.** Gemini extracts the pharmacy, date, items, discounts, tax and total.
 3. **You check it.** An editable review screen shows what was read, with a live **"Amounts add up"** check: items must add up to the subtotal, and subtotal minus discounts plus tax must equal the total.
-4. **Choose the split.** Equal shares or custom percentages, set for the family and adjustable for one receipt. Odd cents stay with the organiser, so no sibling is billed a cent too much.
+4. **Choose the split.** Equal shares or custom percentages, set for the family and adjustable for one receipt. Odd cents stay with the organiser, so no sibling is billed a cent too much. Optionally add a **care credit**: the sibling who gives time (pharmacy runs, appointments, time with the parent) pays a smaller share, and the others share the difference. It is a family agreement shown openly, switchable per receipt, and visible on the caregiver's PayPal invoice as an item discount.
 5. **Confirm and send.** One **PayPal invoice per sibling** is created and sent through the PayPal Invoicing API.
 6. **See who paid.** The receipt page shows each share's status read back from PayPal. The organiser can cancel an invoice or record a payment made in cash or by bank transfer. Each sibling can "view as" themselves and sees only their own share.
 
@@ -52,6 +52,7 @@ of truth for whether it was paid. We call the **PayPal Invoicing API v2** direct
 | Cancel an invoice | `POST .../{id}/cancel` | Withdraws it and notifies the sibling |
 | Paid some other way | `POST .../{id}/payments` (cash, bank transfer, other) | The PayPal invoice and the family's books stay in agreement |
 | Race safety | the live state is read from PayPal *before* cancelling or recording a payment | If the sibling paid a moment ago, the app refuses and updates itself instead of cancelling a paid invoice |
+| Care credit | an item-level `discount` on the caregiver's invoice, and a check of the total PayPal calculates | The credit is visible on the invoice itself, and an invoice whose total differs from the share is never sent |
 
 Safety around PayPal: sandbox only (the app refuses to talk to live PayPal), invoices can only go to a
 fixed list of four fictional sandbox buyer accounts (no free-typed email addresses), the PayPal keys live
@@ -87,7 +88,7 @@ flowchart LR
 | **Secret Manager** | Holds the PayPal and Gemini keys; the service account can read only those three secrets |
 | **React 19, Vite, Tailwind CSS** | Mobile-first interface, built from simple components with accessibility in mind |
 | **Fastify 5, TypeScript, Node 24** | The API: validation, limits, PayPal and Gemini calls |
-| **Vitest, jsdom** | 128 automated tests (money maths, rules, API, PayPal calls with a fake PayPal, screens) |
+| **Vitest, jsdom** | 158 automated tests (money maths, rules, API, PayPal calls with a fake PayPal, screens) |
 | **Claude Code** | Pair-programmed the whole project (see the last section) |
 
 ## Try it (for judges), about 3 minutes
@@ -98,7 +99,7 @@ flowchart LR
 4. **Split & send**: try **Custom percentages** (for example 50 / 30 / 20), then **Send PayPal invoices** and confirm. Real invoices are created in the PayPal sandbox.
 5. On the receipt: **View invoice** opens the PayPal sandbox invoice page. **Mark as paid** (cash) or **Cancel invoice** change the invoice in PayPal; **Refresh status** reads PayPal's state back.
 6. **View as Ben / Clara** (top of the page): each sees only their own share and their invoice link.
-7. **Family**: change names or the split, add a fourth person, or **Reset demo**.
+7. **Family**: change names or the split, add a fourth person, or **Reset demo**. Try **Care credit**: tick it, pick Ben and 25 %, save, then add a receipt: on **Split & send** you will see Ben's share drop and the others' rise, and Ben's invoice will carry the credit as a discount.
 
 To actually *pay* an invoice as a sibling you need to sign in to the PayPal sandbox with one of the four
 fictional buyer accounts; their test logins are given in the Devpost "testing instructions". Without them
@@ -130,7 +131,7 @@ can type receipts in by hand. To turn on the full flow, copy `.env.example` to `
 | `GEMINI_API_KEY` | A key from https://aistudio.google.com/apikey |
 | `DATA_STORE=firestore` | Optional: keep data in Firestore (needs `gcloud auth application-default login`); otherwise memory |
 
-Other commands: `npm test` (128 tests), `npm run typecheck`, `npm run build`, `npm start` (the built app on port 3001),
+Other commands: `npm test` (158 tests), `npm run typecheck`, `npm run build`, `npm start` (the built app on port 3001),
 and `node demo/verify-reading.mjs` (reads the six sample receipts through a running server and checks them).
 
 ### Deploy to Google Cloud Run
@@ -170,7 +171,7 @@ gcloud firestore fields ttls update expireAt --collection-group=receipts --enabl
 
 ## What is next
 
-Care credit (a smaller share for the sibling who gives time, see `ROADMAP.md`), paying a share inside the app
+A care log that suggests the care credit from hours given (level 2 of the care credit, see `ROADMAP.md`), paying a share inside the app
 with PayPal Checkout (Orders API), PayPal webhooks, an AI assistant that answers questions about the family's spending
 (and later acts through PayPal's agent tools, always with confirmation), checks for duplicate or unusual receipts, polite
 AI-written reminders, and a downloadable monthly report. The full phased plan is in [ROADMAP.md](ROADMAP.md).

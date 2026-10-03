@@ -28,6 +28,24 @@ export function sumShares(receipts: ReceiptView[]) {
   return { openCents: open, paidCents: paid };
 }
 
+/**
+ * Care credit given so far, per caregiver: how much less they paid than their normal share, and on
+ * how many receipts. The organiser sees it for everyone; a caregiver sees their own (the server only
+ * sends them their own).
+ */
+export function careCreditTotals(receipts: ReceiptView[]): { caregiverId: string; name: string; creditCents: number; receipts: number }[] {
+  const byPerson = new Map<string, { caregiverId: string; name: string; creditCents: number; receipts: number }>();
+  for (const r of receipts) {
+    const c = r.careCredit;
+    if (!c || c.creditCents <= 0) continue;
+    const entry = byPerson.get(c.caregiverId) ?? { caregiverId: c.caregiverId, name: c.caregiverName, creditCents: 0, receipts: 0 };
+    entry.creditCents += c.creditCents;
+    entry.receipts += 1;
+    byPerson.set(c.caregiverId, entry);
+  }
+  return [...byPerson.values()];
+}
+
 export function sumSpent(receipts: ReceiptView[]): number {
   return receipts.reduce((sum, r) => sum + (r.totalCents ?? 0), 0);
 }

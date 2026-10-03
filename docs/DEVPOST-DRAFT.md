@@ -1,9 +1,9 @@
 # CareSplit: Devpost submission draft
 
 > **Draft, not submitted.** Ready-to-paste texts for the Devpost form, written Oct 3, 2026. Fields in
-> `[brackets]` still need a value from the owner. "Care credit" (a smaller share for the sibling who gives
-> time) is **not built yet**, so it appears only under "What's next"; move it up once it exists. The demo
-> video is recorded last, with Care credit in it.
+> `[brackets]` still need a value from the owner. "Care credit" level 1 is now built (not yet deployed), so it is
+> described under "What it does", "How PayPal is used" and "Innovation"; deploy before you submit. The demo video
+> is recorded last, with Care credit in it.
 
 ## Project name
 
@@ -31,7 +31,7 @@ CareSplit turns a pharmacy receipt into paid-back money.
 1. The organiser (the sibling who paid) photographs a receipt, or picks a built-in fictional sample.
 2. AI reads the pharmacy, date, items, discounts, tax and total.
 3. An editable review screen shows what was read, with a live **"Amounts add up"** check so a misread number is caught before it costs anyone money.
-4. The family splits it: equal shares or custom percentages, set once for the family and adjustable for one receipt. Odd cents stay with the organiser, so no sibling is ever billed a cent too much.
+4. The family splits it: equal shares or custom percentages, set once for the family and adjustable for one receipt. Odd cents stay with the organiser, so no sibling is ever billed a cent too much. And there is a **care credit**: the sibling who gives time (pharmacy runs, appointments, time with the parent) can pay a smaller share, and the others share the difference.
 5. After a confirmation, **one PayPal invoice per sibling** is created and sent.
 6. The receipt page shows each share's status straight from PayPal. The organiser can cancel an invoice or record a payment made in cash or by bank transfer. Each sibling sees only their own share and their invoice.
 
@@ -47,6 +47,16 @@ and the family's books agree. Details that make it trustworthy: an idempotency k
 retry or a double click can never create a second invoice; before cancelling or recording a payment the app
 asks PayPal for the invoice's real state, so it never cancels a paid invoice or records a payment twice; invoices can
 only go to a fixed list of fictional sandbox buyer accounts; and the app refuses to talk to live PayPal.
+
+## Innovation: care credit
+
+Splitting costs is usually just arithmetic, but caring for a parent is also time. CareSplit lets a family agree that the
+sibling who gives time pays a smaller part, and turns that agreement into a visible rule instead of an awkward conversation.
+The family picks the main caregiver and a credit percentage; the caregiver pays their normal share less that credit, and the others
+share the difference. The maths uses whole cents and always adds up to the total. On PayPal the credit is not hidden: the caregiver's
+invoice shows their normal share with an **item discount** for the credit, and the app refuses to send any invoice whose total
+is not exactly the agreed share. The caregiver sees a thank-you, the organiser sees the credit on every receipt and on the dashboard,
+and the agreement is visible to everyone in the family. It records amounts and time only: no health information and no medical claims.
 
 ## How AI is used
 
@@ -68,7 +78,7 @@ are read correctly by an automated check.
 - **Secret Manager and IAM:** the PayPal and Gemini keys; a dedicated service account that can read only those three secrets and only our database.
 - **React 19, Vite, Tailwind CSS, TypeScript:** a mobile-first interface with accessibility basics (labels, focus, contrast, keyboard use).
 - **Fastify 5 on Node 24:** the API: validation, per-visitor limits, PayPal and Gemini calls.
-- **Vitest and jsdom:** 128 automated tests, including a fake PayPal that can fail halfway.
+- **Vitest and jsdom:** 158 automated tests, including a fake PayPal that can fail halfway.
 - **Claude Code (Anthropic):** pair-programmed the whole project. The author set the goals and rules, approved each step and every cloud change, and tested on the live app; Claude Code planned, wrote and tested the code and ran the deployments only after approval. Every commit carries its `Co-Authored-By` line.
 
 ## Challenges we ran into
@@ -82,7 +92,7 @@ are read correctly by an automated check.
 ## Accomplishments we are proud of
 
 A complete, hosted, working loop (photo to paid invoice) that a stranger can try in three minutes; AI used where
-it helps and checked where it matters; PayPal used for real, with the failure cases handled; and a codebase with 128
+it helps and checked where it matters; PayPal used for real, with the failure cases handled; and a codebase with 158
 tests and an honest list of limitations.
 
 ## What we learned
@@ -92,8 +102,7 @@ what the AI read and let them correct it. And a calm, boring screen is the right
 
 ## What's next
 
-**Care credit:** the sibling who gives time (pharmacy runs, appointments, time with the parent) can pay a smaller share,
-set by a family agreement and shown openly on the PayPal invoice. Then paying inside the app with PayPal Checkout,
+**A care log** that suggests the care credit from the hours each person gives (the next level of care credit), then paying inside the app with PayPal Checkout,
 PayPal webhooks for automatic status, an AI assistant that answers questions about the family's spending (and later acts
 through PayPal's agent tools, always with confirmation), checks for duplicate or unusual receipts, polite AI-written
 reminders, and a downloadable monthly report.
@@ -118,7 +127,7 @@ No account is needed. Opening the link creates a private demo family (Anna, Ben,
 3. On **Split & send**, try **Custom percentages** (for example 50 / 30 / 20), then **Send PayPal invoices** and confirm. Real invoices are created in the PayPal **sandbox**.
 4. On the receipt: **View invoice** opens the PayPal sandbox invoice page; **Mark as paid** (cash) or **Cancel invoice** change the invoice in PayPal; **Refresh status** reads PayPal's state back.
 5. **View as Ben / Clara** (top of the page) shows what a sibling sees: only their own share and invoice.
-6. **Family** lets you rename people, add a fourth, change the split, or **Reset demo**.
+6. **Family** lets you rename people, add a fourth, change the split, or **Reset demo**. Tick **Care credit**, pick Ben and 25 %, save, then add a receipt: **Split & send** shows Ben's share dropping and the others' rising, and Ben's invoice carries the credit as a discount.
 
 To pay an invoice yourself, sign in at https://sandbox.paypal.com with a fictional buyer account:
 `[add the four sandbox buyer logins here: Ben's and Clara's are the ones invoices go to by default]`.

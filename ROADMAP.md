@@ -76,7 +76,7 @@ the heart of the entry. Never cut phase 10.
 |---|-------|--------|
 | 0 | Setup and spikes | done (the Orders/Checkout spike moves to the start of phase 4) |
 | 1 | Walking skeleton: receipt → split → PayPal invoice → status | done, live on Cloud Run (Oct 3) |
-| 2 | Complete core: family rules, receipts list, solid errors, demo data | built and **live** (Oct 3, Cloud Run revision `caresplit-00004-pxj`; the 7-day TTL policy on `expireAt` is created for `families` and `receipts`): a private demo family per visitor with sample history and "Reset demo"; an editable family (2 to 4 members, sandbox accounts from a list, equal or percentage split, per-receipt override); receipt filters with totals; cancel an invoice and mark a share as paid outside PayPal; friendly errors and empty states. 128 automated tests, 26 live checks. **New idea, not built: step 2d "Care credit"** |
+| 2 | Complete core: family rules, receipts list, solid errors, demo data | built and **live** (Oct 3, Cloud Run revision `caresplit-00004-pxj`; the 7-day TTL policy on `expireAt` is created for `families` and `receipts`): a private demo family per visitor with sample history and "Reset demo"; an editable family (2 to 4 members, sandbox accounts from a list, equal or percentage split, per-receipt override); receipt filters with totals; cancel an invoice and mark a share as paid outside PayPal; friendly errors and empty states. 128 automated tests, 26 live checks. **Step 2d "Care credit" level 1 is built (not deployed yet)** |
 | 3 | First submission package (submit early) | planned |
 | 4 | Pay your share in the app (Checkout, Orders API) | planned |
 | 5 | PayPal webhooks: automatic status | planned |
@@ -291,7 +291,21 @@ the live link with two made-up visitors (26 checks, no invoices sent): each visi
 nobody sees anyone else's receipts, editing and reset work, no address leaves the server, one live Gemini
 reading answered in 1.4 s. The test families were deleted afterwards. Other services untouched.
 
-**Step 2d, idea added Oct 3 — "Care credit" (not built; for the Innovation criterion).**
+**Step 2d — "Care credit" (idea added Oct 3, for the Innovation criterion). Level 1 is built, not yet deployed; level 2 (care log) is not built.**
+
+*Built (level 1):* the Family screen has a "Care credit" section (switch, main caregiver, credit %, and a
+live preview of the split it produces); the family's care credit is saved with the family and applied on
+top of the family's split (equal or percentages) to every new receipt. On Split & send an "Apply care credit
+to this receipt" switch (on by default) shows the effect ("Ben pays $3.71 less than their normal share") and the
+new percentages. The exact maths lives in `shared/care.ts`: whole basis points that always add up to 100 %, the
+caregiver never pays more and the others never pay less than without the credit, and the organiser still
+absorbs the odd cents. On the PayPal invoice the caregiver's item is the normal share with an **item discount**
+for the credit (verified on the real sandbox: a $1.00 item with a $0.50 discount gives a $0.50 invoice);
+the other siblings' invoices say their part includes the family's care credit; and the server refuses to send any
+invoice whose total PayPal calculated differs from the share. The organiser sees the credit on the receipt and a
+"Care credit" card on the dashboard; the caregiver sees a thank-you (receipt and dashboard); other siblings
+see only their own share, and the agreement is visible to all on Family. A 100 % credit means no invoice for the
+caregiver. 158 automated tests.
 *Why:* money is not the only contribution. A sibling who makes the pharmacy runs, goes to appointments
 and spends time with the parent gives time, and the family may agree that this sibling pays a smaller
 part. Care credit turns that agreement into a visible, fair rule instead of an awkward conversation.

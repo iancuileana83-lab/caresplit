@@ -1,6 +1,7 @@
-import { ArrowLeft, CircleAlert, LoaderCircle, Send } from 'lucide-react';
+import { ArrowLeft, CircleAlert, HeartHandshake, LoaderCircle, Send } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { careCreditRule } from '../../../shared/care';
 import { formatUsd } from '../../../shared/money';
 import { formatPercent, splitByRule, type SplitRule } from '../../../shared/split';
 import type { ReceiptView } from '../../../shared/types';
@@ -25,6 +26,8 @@ export function SplitPreview() {
   const receipt = (useLocation().state as { receipt?: ConfirmedReceipt } | null)?.receipt;
   // Starts from the family's default, and can be changed for this receipt alone.
   const [rule, setRule] = useState<SplitRule>(family.splitRule);
+  // The family's care credit is on by default for every receipt, and can be switched off for this one.
+  const [applyCare, setApplyCare] = useState(true);
   const [confirming, setConfirming] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +39,13 @@ export function SplitPreview() {
   const memberIds = family.members.map((m) => m.id);
   const members = family.members.map((m) => ({ key: m.id, name: m.name }));
   const problem = ruleProblem(rule, members);
-  const parts = problem ? null : splitByRule(receipt.totalCents, memberIds, viewer.id, rule);
+  const credit = family.careCredit && family.careCredit.basisPoints > 0 ? family.careCredit : null;
+  const caregiver = credit ? family.members.find((m) => m.id === credit.caregiverId) : undefined;
+  // What each person pays: the chosen split, with the care credit on top when it is on.
+  const effectiveRule: SplitRule = !problem && credit && caregiver && applyCare ? careCreditRule(rule, memberIds, credit) : rule;
+  const baseParts = problem ? null : splitByRule(receipt.totalCents, memberIds, viewer.id, rule);
+  const parts = problem ? null : splitByRule(receipt.totalCents, memberIds, viewer.id, effectiveRule);
+  const creditCents = credit && baseParts && parts && applyCare ? (baseParts.find((p) => p.memberId === credit.caregiverId)?.amountCents ?? 0) - (parts.find((p) => p.memberId === credit.caregiverId)?.amountCents ?? 0) : 0;
   const nameOf = (id: string) => family.members.find((m) => m.id === id)?.name ?? id;
   const invoices = parts?.filter((p) => p.memberId !== viewer.id && p.amountCents > 0) ?? [];
   const nothingToInvoice = parts !== null && invoices.length === 0;
@@ -48,7 +57,7 @@ export function SplitPreview() {
     setError(null);
     try {
       if (!savedId.current) {
-        const saved = await postJson<ReceiptView>(`/api/receipts?as=${viewer.id}`, { ...r, splitRule: rule });
+        const saved = await postJson<ReceiptView>(`/api/receipts?as=${viewer.id}`, { ...r, splitRule: rule, ...(credit ? { applyCareCredit: applyCare } : {}) });
         savedId.current = saved.id;
       }
       const result = await postJson<SendResult>(`/api/receipts/${savedId.current}/send?as=${viewer.id}`);
@@ -101,6 +110,39 @@ export function SplitPreview() {
         )}
       </section>
 
+      {credit && caregiver && (
+        <section aria-label="Care credit">
+          <Card>
+            <label className={`flex min-h-11 items-start gap-3 ${savedId.current ? '' : 'cursor-pointer'}`}>
+              <input
+                type="checkbox"
+                checked={applyCare}
+                disabled={savedId.current !== null}
+                onChange={(e) => {
+                  setApplyCare(e.target.checked);
+                  setError(null);
+                }}
+                className="mt-1 size-5 accent-teal-700"
+              />
+              <span>
+                <span className="flex items-center gap-1.5 font-medium">
+                  <HeartHandshake size={18} className="text-teal-700" aria-hidden="true" />
+                  Apply care credit to this receipt
+                </span>
+                <span className="block text-sm text-quiet">
+                  {caregiver.name} gives time to care, so their share is {formatPercent(credit.basisPoints)}% lower.
+                </span>
+              </span>
+            </label>
+            {applyCare && creditCents > 0 && (
+              <p role="status" className="mt-2 rounded-xl bg-teal-50 px-3 py-2 text-sm text-teal-900">
+                Care credit: {caregiver.name} pays {formatUsd(creditCents)} less than their normal share.
+              </p>
+            )}
+          </Card>
+        </section>
+      )}
+
       <section>
         <h2 className="mb-2 text-sm font-semibold">Who pays what</h2>
         <Card className="py-1">
@@ -113,7 +155,7 @@ export function SplitPreview() {
                     <span>
                       <span className="block font-medium">
                         {nameOf(p.memberId)}
-                        {rule.type === 'percent' && <span className="ml-2 text-xs font-normal text-quiet">{formatPercent(rule.basisPoints[p.memberId] ?? 0)}%</span>}
+                        {effectiveRule.type === 'percent' && <span className="ml-2 text-xs font-normal text-quiet">{formatPercent(effectiveRule.basisPoints[p.memberId] ?? 0)}%</span>}
                       </span>
                       <span className="block text-xs text-quiet">
                         {own ? 'Your own share, not invoiced' : p.amountCents > 0 ? 'Will get a PayPal invoice' : 'Pays nothing, no invoice'}
