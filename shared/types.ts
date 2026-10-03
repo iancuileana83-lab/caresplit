@@ -1,4 +1,5 @@
 // Types shared by the server and the web app. All money is integer US cents.
+import type { CareCredit } from './care';
 import type { SplitRule } from './split';
 
 export type MemberId = string;
@@ -50,8 +51,20 @@ export interface ReceiptView {
   shares: Share[];
   /** Part of the built-in sample history: no real PayPal invoice exists for it. */
   sample?: boolean;
-  /** How this receipt was split. Only sent to the organiser. */
+  /** How this receipt was split (with the care credit already in it). Only sent to the organiser. */
   splitRule?: SplitRule;
+  /** Set when a care credit was applied to this receipt. Sent to the organiser and to the caregiver. */
+  careCredit?: ReceiptCareCredit;
+}
+
+/** The care credit that was applied to one receipt. */
+export interface ReceiptCareCredit {
+  caregiverId: MemberId;
+  caregiverName: string;
+  /** The credit percentage that was in force, in basis points. */
+  basisPoints: number;
+  /** How much less the caregiver's share is than their normal share, in cents. */
+  creditCents: number;
 }
 
 export interface FamilyView {
@@ -59,6 +72,8 @@ export interface FamilyView {
   members: EditableMember[];
   /** The way new receipts are split unless the organiser chooses otherwise for one receipt. */
   splitRule: SplitRule;
+  /** The family's care credit for the main caregiver, or null when there is none. */
+  careCredit: CareCredit | null;
   /** The accounts members can be linked to (2 to 4 members, one account each). */
   accounts: SandboxAccountView[];
 }

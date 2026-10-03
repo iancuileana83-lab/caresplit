@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import fastifyStatic from '@fastify/static';
+import { careCreditRule, validateCareCredit } from '../shared/care';
 import { splitByRule, validateRule, type SplitRule } from '../shared/split';
 import type { FamilyView, Member } from '../shared/types';
 import { accountEmail, sandboxAccounts } from './demo-data';
@@ -42,6 +43,7 @@ const publicFamily = (f: StoredFamily): FamilyView => ({
   name: f.name,
   members: f.members.map((m) => ({ id: m.id, name: m.name, role: m.role, accountId: m.accountId })),
   splitRule: f.splitRule ?? { type: 'equal' },
+  careCredit: f.careCredit ?? null,
   accounts: sandboxAccounts.map((a) => ({ id: a.id, label: a.label })), // labels only: the addresses stay on the server
 });
 
@@ -155,14 +157,30 @@ export async function buildApp({ store, staticDir, reader, paypal, limiter, payp
 
     // The split for this receipt: the one sent with it, or else the family's default.
     const memberIds = c.family.members.map((m) => m.id);
-    const sent = (req.body as { splitRule?: unknown }).splitRule;
-    const rule: SplitRule = sent === undefined ? (c.family.splitRule ?? { type: 'equal' }) : (sent as SplitRule);
-    const ruleProblem = validateRule(rule, memberIds);
+    const body = req.body as { splitRule?: unknown; applyCareCredit?: unknown };
+    const baseRule: SplitRule = body.splitRule === undefined ? (c.family.splitRule ?? { type: 'equal' }) : (body.splitRule as SplitRule);
+    const ruleProblem = validateRule(baseRule, memberIds);
     if (ruleProblem) return reply.code(400).send({ error: ruleProblem });
+    if (body.applyCareCredit !== undefined && typeof body.applyCareCredit !== 'boolean') return reply.code(400).send({ error: 'applyCareCredit must be true or false' });
 
     const input = parsed.value;
-    const parts = splitByRule(input.totalCents, memberIds, c.viewer.id, rule);
     const nameOf = (id: string) => c.family.members.find((m) => m.id === id)?.name;
+
+    // The family's care credit is applied on top, unless the organiser switched it off for this receipt.
+    let rule = baseRule;
+    let careCredit: StoredReceipt['careCredit'];
+    const credit = c.family.careCredit;
+    if (credit && credit.basisPoints > 0 && body.applyCareCredit !== false && validateCareCredit(credit, memberIds) === null) {
+      rule = careCreditRule(baseRule, memberIds, credit);
+      const before = splitByRule(input.totalCents, memberIds, c.viewer.id, baseRule).find((p) => p.memberId === credit.caregiverId)!.amountCents;
+      const after = splitByRule(input.totalCents, memberIds, c.viewer.id, rule).find((p) => p.memberId === credit.caregiverId)!.amountCents;
+      if (before - after > 0) {
+        careCredit = { caregiverId: credit.caregiverId, caregiverName: nameOf(credit.caregiverId) ?? 'the caregiver', basisPoints: credit.basisPoints, creditCents: before - after, baseSplitRule: baseRule };
+      } else {
+        rule = baseRule; // no cent changes hands, so keep the receipt plain
+      }
+    }
+    const parts = splitByRule(input.totalCents, memberIds, c.viewer.id, rule);
     // A member who owes nothing gets no share and no invoice.
     const shares = parts.filter((p) => p.memberId !== c.viewer.id && p.amountCents > 0).map((p) => ({ memberId: p.memberId, memberName: nameOf(p.memberId), amountCents: p.amountCents, status: 'DRAFT' as const }));
     if (shares.length === 0) return reply.code(400).send({ error: 'With this split nobody else owes anything, so there is nothing to invoice. Choose a different split.' });
@@ -173,6 +191,7 @@ export async function buildApp({ store, staticDir, reader, paypal, limiter, payp
       payerShareCents: parts.find((p) => p.memberId === c.viewer.id)?.amountCents ?? 0,
       shares,
       splitRule: rule,
+      ...(careCredit ? { careCredit } : {}),
       createdAt: new Date().toISOString(),
       expireAt: c.family.expireAt,
     };

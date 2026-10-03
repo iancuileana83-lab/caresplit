@@ -31,7 +31,10 @@ export interface InvoiceRequest {
   itemName: string;
   itemDescription: string;
   note: string;
+  /** The item's price before any discount. */
   amountCents: number;
+  /** A discount on that item (the care credit). The invoice total is amountCents minus this. */
+  discountCents?: number;
 }
 
 export interface InvoiceInfo {
@@ -39,6 +42,8 @@ export interface InvoiceInfo {
   status: string;
   number?: string;
   recipientViewUrl?: string;
+  /** The invoice total as PayPal calculated it, in cents, when PayPal says it. */
+  totalCents?: number;
 }
 
 const dollars = (cents: number) => (cents / 100).toFixed(2);
@@ -103,6 +108,7 @@ export function createPayPalClient(config: PayPalConfig) {
     status: String(inv.status),
     number: inv.detail?.invoice_number,
     recipientViewUrl: inv.detail?.metadata?.recipient_view_url,
+    totalCents: inv.amount?.value !== undefined && Number.isFinite(Number(inv.amount.value)) ? Math.round(Number(inv.amount.value) * 100) : undefined,
   });
 
   return {
@@ -125,6 +131,7 @@ export function createPayPalClient(config: PayPalConfig) {
               description: req.itemDescription.slice(0, 1000),
               quantity: '1',
               unit_amount: { currency_code: 'USD', value: dollars(req.amountCents) },
+              ...(req.discountCents && req.discountCents > 0 ? { discount: { amount: { currency_code: 'USD', value: dollars(req.discountCents) } } } : {}),
             },
           ],
         },

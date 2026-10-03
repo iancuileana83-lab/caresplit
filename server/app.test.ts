@@ -175,18 +175,21 @@ const newReceipt = {
 };
 
 // A PayPal stand-in that records what it was asked and can be told to fail.
-function fakePayPal(opts: { failSendFor?: string; failCancel?: boolean; failRecord?: boolean } = {}) {
+function fakePayPal(opts: { failSendFor?: string; failCancel?: boolean; failRecord?: boolean; ignoreDiscount?: boolean } = {}) {
   const log: string[] = [];
   /** What PayPal currently says about each invoice; tests can change it (for example to PAID). */
   const states = new Map<string, string>();
   let n = 0;
   const client = {
-    async createDraft(req: { recipientName: string; recipientEmail: string; amountCents: number; itemDescription: string }) {
+    async createDraft(req: { recipientName: string; recipientEmail: string; amountCents: number; itemDescription: string; discountCents?: number }) {
       log.push(`create:${req.recipientName}:${req.amountCents}:${req.recipientEmail}`);
       log.push(`description:${req.itemDescription}`);
+      log.push(`discount:${req.recipientName}:${req.discountCents ?? 0}`);
       const id = `INV-${++n}`;
       states.set(id, 'DRAFT');
-      return { id, status: 'DRAFT', number: `000${n}` };
+      // PayPal's total is the item price minus the item discount (unless a test makes it ignore the discount).
+      const totalCents = req.amountCents - (opts.ignoreDiscount ? 0 : (req.discountCents ?? 0));
+      return { id, status: 'DRAFT', number: `000${n}`, totalCents };
     },
     async send(id: string) {
       log.push(`send:${id}`);
@@ -295,6 +298,133 @@ describe('editing the family', () => {
     const receipt = (await get(a, '/api/receipts/sample-green-leaf?as=anna')).json() as ReceiptView;
     expect(receipt.shares.map((s) => s.name)).toEqual(['Ben', 'Clara']); // the names they had when the receipt was made
     expect(receipt.shares).toHaveLength(2);
+  });
+});
+
+describe('care credit', () => {
+  const credit = (caregiverId: string, basisPoints: number) => ({ caregiverId, basisPoints });
+  const withCredit = (c: unknown, rule: unknown = { type: 'equal' }, members: unknown[] = members3) => ({ ...family(members, rule), careCredit: c });
+
+  it('is saved with the family and shown back, and only the organiser can set it', async () => {
+    const a = await app();
+    expect(((await get(a, '/api/family')).json() as FamilyView).careCredit).toBeNull();
+    const saved = await put(a, withCredit(credit('ben', 2500)));
+    expect(saved.statusCode).toBe(200);
+    expect((saved.json() as FamilyView).careCredit).toEqual(credit('ben', 2500));
+    expect(((await get(a, '/api/family')).json() as FamilyView).careCredit).toEqual(credit('ben', 2500));
+    expect((await put(a, withCredit(credit('ben', 2500)), 'ben')).statusCode).toBe(403);
+    // saving the family again without a credit removes it
+    expect(((await put(a, family(members3))).json() as FamilyView).careCredit).toBeNull();
+  });
+
+  it('refuses an unknown caregiver, a removed caregiver and a credit outside 0 to 100 percent', async () => {
+    const a = await app();
+    for (const bad of [credit('zoe', 2500), credit('ben', -1), credit('ben', 10001), credit('ben', 12.5), { caregiverId: 'ben' }, 'ben']) {
+      expect((await put(a, withCredit(bad))).statusCode, JSON.stringify(bad)).toBe(400);
+    }
+    expect((await put(a, withCredit(credit('clara', 2500), { type: 'equal' }, [members3[0], members3[1]]))).statusCode).toBe(400); // Clara is no longer in the family
+  });
+
+  it('can name a person who is being added in the same save', async () => {
+    const a = await app();
+    const res = await put(a, withCredit(credit('new-3', 3000), { type: 'equal' }, [...members3, david]));
+    expect(res.statusCode).toBe(200);
+    const saved = res.json() as FamilyView;
+    expect(saved.careCredit).toEqual(credit(saved.members[3].id, 3000));
+    expect(saved.members[3].name).toBe('David');
+  });
+
+  it('lowers the caregiver\'s share, raises the others\', keeps the total, and records the credit', async () => {
+    const a = await app();
+    await put(a, withCredit(credit('ben', 2500)));
+    const res = await post(a, '/api/receipts?as=anna', newReceipt);
+    expect(res.statusCode).toBe(201);
+    const view = res.json() as ReceiptView;
+    expect(view.shares.map((s) => [s.name, s.amountCents])).toEqual([['Ben', 1167], ['Clara', 1750]]);
+    expect(view.payerShareCents).toBe(1751);
+    expect(1167 + 1750 + 1751).toBe(4668);
+    expect(view.careCredit).toEqual({ caregiverId: 'ben', caregiverName: 'Ben', basisPoints: 2500, creditCents: 389 });
+    expect(view.splitRule).toEqual({ type: 'percent', basisPoints: { anna: 3750, ben: 2500, clara: 3750 } });
+  });
+
+  it('can be switched off for one receipt', async () => {
+    const a = await app();
+    await put(a, withCredit(credit('ben', 2500)));
+    const view = (await post(a, '/api/receipts?as=anna', { ...newReceipt, applyCareCredit: false })).json() as ReceiptView;
+    expect(view.shares.map((s) => s.amountCents)).toEqual([1556, 1556]);
+    expect(view.careCredit).toBeUndefined();
+    expect(view.splitRule).toEqual({ type: 'equal' });
+    expect((await post(a, '/api/receipts?as=anna', { ...newReceipt, applyCareCredit: 'no' })).statusCode).toBe(400);
+  });
+
+  it('is applied on top of a percentage split, and only the caregiver and the organiser see it', async () => {
+    const a = await app();
+    await put(a, withCredit(credit('clara', 5000), { type: 'percent', basisPoints: { anna: 5000, ben: 3000, clara: 2000 } }));
+    const view = (await post(a, '/api/receipts?as=anna', newReceipt)).json() as ReceiptView;
+    expect(view.shares.map((s) => [s.name, s.amountCents])).toEqual([['Ben', 1575], ['Clara', 466]]);
+    expect(view.payerShareCents).toBe(2627);
+    expect(view.careCredit?.creditCents).toBe(467); // Clara's normal share at 20 % was 933
+    const asClara = (await get(a, `/api/receipts/${view.id}?as=clara`)).json() as ReceiptView;
+    expect(asClara.careCredit).toMatchObject({ caregiverId: 'clara', creditCents: 467 });
+    expect(asClara.splitRule).toBeUndefined();
+    const asBen = (await get(a, `/api/receipts/${view.id}?as=ben`)).json() as ReceiptView;
+    expect(asBen.careCredit).toBeUndefined();
+    expect(JSON.stringify(asBen)).not.toMatch(/467|Clara|care/i);
+  });
+
+  it('works when the organiser is the caregiver: the others pay more, nobody gets a discount line', async () => {
+    const pp = fakePayPal();
+    const a = await app({ paypal: pp.client });
+    await put(a, withCredit(credit('anna', 4000)));
+    const view = (await post(a, '/api/receipts?as=anna', newReceipt)).json() as ReceiptView;
+    expect(view.shares.every((s) => s.amountCents > 1556)).toBe(true);
+    expect(view.careCredit?.caregiverName).toBe('Anna');
+    expect(view.shares.reduce((s, x) => s + x.amountCents, 0) + (view.payerShareCents ?? 0)).toBe(4668);
+    await post(a, `/api/receipts/${view.id}/send?as=anna`);
+    expect(pp.log.filter((l) => l.startsWith('discount:')).every((l) => l.endsWith(':0'))).toBe(true);
+  });
+
+  it('puts the credit on the caregiver\'s PayPal invoice as an item discount, and says so on the others\'', async () => {
+    const pp = fakePayPal();
+    const a = await app({ paypal: pp.client });
+    await put(a, withCredit(credit('ben', 2500)));
+    const view = (await post(a, '/api/receipts?as=anna', newReceipt)).json() as ReceiptView;
+    const sent = (await post(a, `/api/receipts/${view.id}/send?as=anna`)).json() as { receipt: ReceiptView; failed: unknown[] };
+    expect(sent.failed).toEqual([]);
+    // Ben's item is his normal 15.56 with a 3.89 discount, so he owes 11.67; Clara's is a plain 17.50
+    expect(pp.log.filter((l) => l.startsWith('create:'))).toEqual([
+      'create:Ben:1556:sb-cxgha53183684@personal.example.com',
+      'create:Clara:1750:sb-r1goj53183689@personal.example.com',
+    ]);
+    expect(pp.log.filter((l) => l.startsWith('discount:'))).toEqual(['discount:Ben:389', 'discount:Clara:0']);
+    const [benText, claraText] = pp.log.filter((l) => l.startsWith('description:'));
+    expect(benText).toContain('your normal share minus a $3.89 care credit for time spent helping');
+    expect(claraText).toContain("which includes the family's care credit");
+    expect(sent.receipt.shares.map((s) => s.status)).toEqual(['SENT', 'SENT']);
+  });
+
+  it('gives a 100 % credit no invoice at all, and still records it', async () => {
+    const pp = fakePayPal();
+    const a = await app({ paypal: pp.client });
+    await put(a, withCredit(credit('ben', 10000)));
+    const view = (await post(a, '/api/receipts?as=anna', newReceipt)).json() as ReceiptView;
+    expect(view.shares.map((s) => s.name)).toEqual(['Clara']);
+    expect(view.careCredit?.creditCents).toBe(1556);
+    await post(a, `/api/receipts/${view.id}/send?as=anna`);
+    expect(pp.log.filter((l) => l.startsWith('create:')).map((l) => l.split(':')[1])).toEqual(['Clara']);
+  });
+
+  it('never sends an invoice whose total is not the share (PayPal ignoring the discount)', async () => {
+    const pp = fakePayPal({ ignoreDiscount: true });
+    const a = await app({ paypal: pp.client });
+    await put(a, withCredit(credit('ben', 2500)));
+    const view = (await post(a, '/api/receipts?as=anna', newReceipt)).json() as ReceiptView;
+    const res = (await post(a, `/api/receipts/${view.id}/send?as=anna`)).json() as { receipt: ReceiptView; failed: { memberId: string; message: string }[] };
+    expect(res.failed).toHaveLength(1);
+    expect(res.failed[0]).toMatchObject({ memberId: 'ben' });
+    expect(res.failed[0].message).toMatch(/\$15\.56 instead of \$11\.67, so it was not sent/);
+    expect(res.receipt.shares.map((s) => s.status)).toEqual(['DRAFT', 'SENT']); // Ben's was held back, Clara's went out
+    expect(pp.log.filter((l) => l.startsWith('send:'))).toEqual(['send:INV-2']);
   });
 });
 

@@ -36,13 +36,22 @@ const needsSending = (s: StoredShare) => s.status === 'DRAFT' && s.amountCents >
 
 function describe(receipt: StoredReceipt, share: StoredShare, payerName: string) {
   const rule = receipt.splitRule;
+  const care = receipt.careCredit;
+  // The caregiver's invoice shows the normal share with the care credit taken off as a discount, so the
+  // credit is visible on the invoice itself. The total they owe is still exactly their share.
+  const discountCents = care && care.caregiverId === share.memberId ? care.creditCents : 0;
   const how =
-    rule?.type === 'percent' ? `your part is ${formatPercent(rule.basisPoints[share.memberId] ?? 0)}% of the total` : 'split equally between the family members';
+    discountCents > 0
+      ? `your normal share minus a ${formatUsd(discountCents)} care credit for time spent helping`
+      : rule?.type === 'percent'
+        ? `your part is ${formatPercent(rule.basisPoints[share.memberId] ?? 0)}% of the total${care ? ", which includes the family's care credit" : ''}`
+        : 'split equally between the family members';
   return {
     itemName: `Your share of the ${receipt.merchant} receipt`,
     itemDescription: `Receipt dated ${receipt.date}, total ${formatUsd(receipt.totalCents)}, ${how}, paid at the pharmacy by ${payerName}.`,
     note: 'CareSplit demo: fictional data, PayPal sandbox. Amounts and dates only.',
-    amountCents: share.amountCents,
+    amountCents: share.amountCents + discountCents,
+    ...(discountCents > 0 ? { discountCents } : {}),
   };
 }
 
@@ -70,6 +79,10 @@ export function sendInvoices(receiptId: string, deps: InvoiceDeps): Promise<{ re
             recipientEmail: email,
             ...describe(receipt, share, payerName),
           });
+          // Never send an invoice whose total is not exactly this share (for example if PayPal ignored a discount).
+          if (draft.totalCents !== undefined && draft.totalCents !== share.amountCents) {
+            throw new Error(`PayPal calculated an invoice total of ${formatUsd(draft.totalCents)} instead of ${formatUsd(share.amountCents)}, so it was not sent`);
+          }
           share.invoiceId = draft.id;
           share.invoiceNumber = draft.number;
           await deps.store.save(receipt); // remember the draft before anything else can go wrong

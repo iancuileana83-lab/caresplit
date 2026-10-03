@@ -49,6 +49,25 @@ describe('createPayPalClient', () => {
     expect((create.init.headers as Record<string, string>)['PayPal-Request-Id']).toBe('req-1');
   });
 
+  it('puts a discount on the item and reads back the total PayPal calculated', async () => {
+    const { calls, paypal } = client((url) =>
+      url.endsWith('/v1/oauth2/token') ? json({ access_token: 'tok', expires_in: 3600 }) : json({ id: 'INV2-9', status: 'DRAFT', amount: { currency_code: 'USD', value: '11.67' } }, 201),
+    );
+    const info = await paypal.createDraft({ ...request, amountCents: 1556, discountCents: 389 });
+    const sent = JSON.parse(String(calls[1].init.body));
+    expect(sent.items[0].unit_amount).toEqual({ currency_code: 'USD', value: '15.56' });
+    expect(sent.items[0].discount).toEqual({ amount: { currency_code: 'USD', value: '3.89' } });
+    expect(info.totalCents).toBe(1167);
+  });
+
+  it('sends no discount when there is none', async () => {
+    const { calls, paypal } = client((url) => (url.endsWith('/v1/oauth2/token') ? json({ access_token: 'tok', expires_in: 3600 }) : json({ id: 'X', status: 'DRAFT' }, 201)));
+    await paypal.createDraft(request);
+    expect(JSON.parse(String(calls[1].init.body)).items[0]).not.toHaveProperty('discount');
+    await paypal.createDraft({ ...request, discountCents: 0 }); // the sign-in token is reused, so this is the third call
+    expect(JSON.parse(String(calls[2].init.body)).items[0]).not.toHaveProperty('discount');
+  });
+
   it('cancels an invoice and tells the recipient', async () => {
     const { calls, paypal } = client((url) => (url.endsWith('/v1/oauth2/token') ? json({ access_token: 'tok', expires_in: 3600 }) : json({})));
     await paypal.cancel('INV2-1', 'Cancelled by the organiser');

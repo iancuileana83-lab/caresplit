@@ -2,6 +2,7 @@
 // each linked to a different PayPal sandbox account from the fixed list, and a split rule that
 // matches exactly those members.
 import { randomUUID } from 'node:crypto';
+import { validateCareCredit, type CareCredit } from '../shared/care';
 import { validateRule, type SplitRule } from '../shared/split';
 import { MAX_MEMBERS, MIN_MEMBERS } from '../shared/types';
 import { sandboxAccounts } from './demo-data';
@@ -11,6 +12,7 @@ export interface FamilyUpdate {
   name: string;
   members: StoredMember[];
   splitRule: SplitRule;
+  careCredit: CareCredit | null;
 }
 
 const MAX_NAME = 20;
@@ -62,7 +64,19 @@ export function parseFamilyUpdate(body: unknown, current: StoredFamily): { ok: t
   const problem = validateRule(rule, members.map((m) => m.id));
   if (problem) return { ok: false, error: problem };
 
-  return { ok: true, value: { name, members, splitRule: rule as SplitRule } };
+  // The care credit names the caregiver by id, or `new-<position>` for a person who has no id yet.
+  let careCredit: CareCredit | null = null;
+  if (b.careCredit !== undefined && b.careCredit !== null) {
+    const raw = b.careCredit as { caregiverId?: unknown; basisPoints?: unknown };
+    const pos = typeof raw.caregiverId === 'string' ? /^new-(\d+)$/.exec(raw.caregiverId) : null;
+    const index = pos ? Number(pos[1]) : -1;
+    const caregiverId = index >= 0 && index < members.length && !(b.members as Record<string, unknown>[])[index]?.id ? members[index].id : raw.caregiverId;
+    const creditProblem = validateCareCredit({ caregiverId, basisPoints: raw.basisPoints }, members.map((m) => m.id));
+    if (creditProblem) return { ok: false, error: creditProblem };
+    careCredit = { caregiverId: caregiverId as string, basisPoints: raw.basisPoints as number };
+  }
+
+  return { ok: true, value: { name, members, splitRule: rule as SplitRule, careCredit } };
 }
 
 /** Turns `new-<position>` keys in a percentage rule into the ids the new members just received. */

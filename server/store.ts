@@ -1,5 +1,6 @@
 // Where families and receipts live. Two implementations behind one interface: in memory (tests,
 // and local development without Google Cloud) and Firestore (see firestore-store.ts).
+import type { CareCredit } from '../shared/care';
 import type { SplitRule } from '../shared/split';
 import type { MemberId, ShareStatus } from '../shared/types';
 
@@ -18,6 +19,8 @@ export interface StoredFamily {
   members: StoredMember[];
   /** How new receipts are split by default. Older documents may lack it: read it as equal. */
   splitRule?: SplitRule;
+  /** The care credit for the main caregiver. Missing or null: none. */
+  careCredit?: CareCredit | null;
   createdAt: string;
   /** Everything of this family is deleted after this moment (Firestore TTL, when enabled). */
   expireAt: string;
@@ -56,8 +59,10 @@ export interface StoredReceipt {
   createdAt: string;
   /** True for the built-in sample history: no real PayPal invoice exists for it. */
   sample?: boolean;
-  /** How this receipt was split (equal when missing). */
+  /** How this receipt was split (equal when missing). With a care credit this is the rule after the credit. */
   splitRule?: SplitRule;
+  /** Present when a care credit was applied to this receipt. */
+  careCredit?: { caregiverId: MemberId; caregiverName: string; basisPoints: number; creditCents: number; baseSplitRule: SplitRule };
   expireAt?: string;
 }
 
