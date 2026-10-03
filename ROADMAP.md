@@ -80,7 +80,7 @@ the heart of the entry. Never cut phase 10.
 | 3 | First submission package (submit early) | planned |
 | 4 | Pay your share in the app (Checkout, Orders API) | planned, after the real-payment test of the webhooks |
 | 5 | PayPal webhooks: automatic status | done and live (revision `caresplit-00006-vcd`): a payment recorded in PayPal updated the app by itself within about 30 s; a buyer's payment on Ben's invoice is still to try |
-| 6 | AI chat assistant over the family's data | planned |
+| 6 | AI chat assistant over the family's data, with confirmed actions | in progress (plan decided Oct 4: own tools + Gemini function calling; optional PayPal Agent Toolkit step only if it works cleanly in the sandbox) |
 | 7 | AI checks: duplicates, high amounts, late payers | planned |
 | 8 | AI-written payment reminders | planned |
 | 9 | Monthly family report, downloadable | planned |
@@ -451,7 +451,48 @@ with PayPal's real signature check. Still to do, nice to have: a payment by a sa
 - Cloud Run scale-to-zero cold start versus PayPal's webhook timeout; set min instances to 1
   only for the demo period if needed (cost note).
 
-### 6. AI chat assistant over the family's data (≈ 8–10 h)
+### 6. AI chat assistant over the family's data (≈ 8–10 h as first planned; now ≈ 20–24 h with actions)
+
+**Plan decided Oct 4 (owner's choices: stage A, full version, new "Assistant" tab in the bottom bar).**
+*What the organiser can do.* Ask (read only): spending in a period, who has not paid, the biggest receipt, care credit
+so far, what happened to one person's invoice. Act, always after confirmation: send a reminder, mark a share as paid
+(cash, bank transfer, other), cancel an invoice, send the invoices that are still unsent; "refresh statuses" needs no
+confirmation. It never gives medical advice, never sees another family, never changes family settings, never creates receipts.
+*Confirmation.* The model can only **propose**. The server checks the proposal against the real state and stores it as a
+pending action (in the family's own Firestore subcollection `assistantActions`, with `expireAt`); the screen shows a card
+(person, amount, receipt, effect, and for a reminder the exact message) with **Confirm** and **Dismiss**. Confirm is a normal
+button call, not something the model can press: it re-checks the state, runs once (repeating it returns the same result),
+expires after 5 minutes, and is logged in a visible "What the assistant did" list.
+*Own tools through Gemini function calling (stage A).* Read tools: summary for a period, list receipts, one receipt in
+detail, who owes what. Proposal tools: reminder, mark paid, cancel, send remaining. They reuse the same tested code as the
+buttons (no double invoices, live PayPal state checked first, care credit, per-family isolation), plus one new PayPal call,
+`POST /v2/invoicing/invoices/{id}/remind`, verified in the sandbox first and limited to one reminder per share per day.
+The numbers in an answer come from code, not from the model. *Optional stage B (3–5 h):* run the reminder and cancel through
+PayPal's Agent Toolkit tools, only behind our own scoping check (the invoice must belong to the family) and the confirmation,
+and only if it works cleanly in the sandbox; otherwise skip it. Why not the toolkit alone: it knows nothing about families or
+receipts, sees the whole merchant account (other visitors' invoices) and does not ask for confirmation itself.
+*Protecting the public demo.* Tools take no family id and cannot leave the visitor's family; the model never sees PayPal invoice
+ids; text from receipts (pharmacy and item names) goes into tool results as short, cleaned data strings with a standing
+instruction never to follow it, and since the model cannot execute anything, an injected instruction can at most produce a
+proposal that a person must still confirm and that the server re-validates; replies are shown as plain text; limits per visitor
+(about 8 messages a minute), a daily cap for the whole app, 500 characters per message, the last 10 turns, at most 5 tool steps per
+answer; a clear "use the buttons" message when Gemini is busy or out of quota; medical questions are refused.
+*Order of work and time.* (1) store for pending actions, reminder call, service functions and tests: 4 h; (2) tools, Gemini loop,
+endpoints and tests (fake model, injection, isolation): 7 h; (3) the Assistant tab: chat, suggestions, action cards, log, errors: 6 h;
+(4) live checks with the real model, docs: 3 h; (5) optional stage B: 3–5 h. Total about 20–24 h, 12–18 days at 1–2 h a day.
+*Needs the owner's OK later:* a TTL policy for the new collection group `assistantActions`, and the deploy.
+*Gemini quota for the chat (estimate, to decide early about a paid key).* Third-party summaries of Google's free tier
+(Sept 2026, to be confirmed in AI Studio) give about 500 requests a day each for `gemini-3.5-flash-lite` and
+`gemini-3.1-flash-lite`, and only about 20 a day each for the larger Flash models (which matches what we saw: they ran out
+after a day of testing). Chat model chain: `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, then `gemini-3.6-flash` (all
+three accept function calling in our probe). One message costs about 2 to 3 Gemini requests (a question that needs a tool:
+request, tool result, final answer; a plain reply: 1); a judge's 10 to 15 messages are about 30 requests, plus 1 to 2 receipt
+readings. About 1,000 lite requests a day would then cover roughly 30 judge sessions a day (about 400 messages), and the large
+models add almost nothing. That is probably enough for judging, but not with a margin if the entry gets attention, and our own
+testing eats it too. Paid tier cost is small (roughly a tenth of a cent per message at lite prices, so a few dollars even for
+thousands of messages; prices to be checked). Suggested decision point: after the chat works and before the video (about Oct 25):
+enable billing for the Gemini key if daily use is above about 40 % of the quota. A per-day counter of our own Gemini requests will
+be shown in the logs to measure it.
 
 **Delivers**
 - A chat panel: "How much did each of us pay in September?", "Who still owes something?",
