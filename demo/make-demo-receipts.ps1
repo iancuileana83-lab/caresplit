@@ -142,3 +142,7 @@ foreach ($r in $receipts) {
   "{0}  subtotal {1}  discount {2}  tax {3}  total {4}" -f $r.file, (M $sub), (M $disc), (M $tax), (M $total)
 }
 ConvertTo-Json -InputObject $expected -Depth 6 | Set-Content -Encoding utf8 (Join-Path $out 'expected.json')
+
+# The web app serves the same images as built-in samples.
+New-Item -ItemType Directory -Force (Join-Path $PSScriptRoot '..\web\public\demo-receipts') | Out-Null
+Copy-Item (Join-Path $out '*.png') (Join-Path $PSScriptRoot '..\web\public\demo-receipts')

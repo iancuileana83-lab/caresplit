@@ -5,6 +5,7 @@ import { Dashboard } from './pages/Dashboard';
 import { Family } from './pages/Family';
 import { ReceiptDetail } from './pages/ReceiptDetail';
 import { Receipts } from './pages/Receipts';
+import { SplitPreview } from './pages/SplitPreview';
 
 export function App() {
   return (
@@ -14,6 +15,7 @@ export function App() {
         <Route path="receipts" element={<Receipts />} />
         <Route path="receipts/:id" element={<ReceiptDetail />} />
         <Route path="add" element={<AddReceipt />} />
+        <Route path="add/split" element={<SplitPreview />} />
         <Route path="family" element={<Family />} />
         <Route path="*" element={<p className="py-8 text-center text-quiet">That page doesn't exist.</p>} />
       </Route>

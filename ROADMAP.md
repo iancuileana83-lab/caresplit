@@ -75,7 +75,7 @@ the heart of the entry. Never cut phase 10.
 | # | Phase | Status |
 |---|-------|--------|
 | 0 | Setup and spikes | next |
-| 1 | Walking skeleton: receipt → split → PayPal invoice → status | in progress (step 1 done: app shell with demo data, View as switcher, equal-split maths with tests; next: receipt upload and Gemini reading) |
+| 1 | Walking skeleton: receipt → split → PayPal invoice → status | in progress (done: app shell with demo data, View as switcher, equal-split maths; receipt upload, Gemini reading, editable Review screen with the "Amounts add up" check, split preview. Next: save receipts in Firestore and send the PayPal invoices) |
 | 2 | Complete core: family rules, receipts list, solid errors, demo data | planned |
 | 3 | First submission package (submit early) | planned |
 | 4 | Pay your share in the app (Checkout, Orders API) | planned |
@@ -139,7 +139,15 @@ the heart of the entry. Never cut phase 10.
   up) in 4–10 s. Gemini returned temporary **503 "high demand"** errors on several calls: the app
   needs retries with backoff and a second model as fallback (`gemini-3.7-flash` also reads them
   correctly). The duplicate and the very-high-amount receipts for phase 7 are still to be made.
-  Still open: free-tier rate limits, image size limits. Decide the
+  **Update (phase 1, receipt reading built):** besides 503s Gemini answers **429** (a model's
+  request quota used up) and is sometimes slow (5 to 35 s per receipt). The server now tries
+  `gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.6-flash` in turn: 503 is retried on the same
+  model, 429 and 404 move to the next model at once. All six demo receipts read correctly through
+  the server (`node demo/verify-reading.mjs`). The screen says "Still reading" after 15 s, and the
+  user can always enter a receipt by hand. Still open: the free-tier quota is small, so the public
+  demo needs the per-visitor and daily limits (built, `READ_LIMIT_*`) and possibly a paid-tier key
+  for judging week; check the real quota in AI Studio before November.
+  Still open: image size limits. Decide the
   fallback if the key is rate limited during judging (cached sample result for the demo receipts).
 - **Official rules:** confirm eligibility, whether specific PayPal APIs are required, and exact
   submission fields.

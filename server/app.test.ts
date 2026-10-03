@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildApp } from './app';
+import { ReadError } from './gemini';
 import type { ReceiptView } from '../shared/types';
 
 async function receiptsAs(as?: string) {
@@ -38,6 +39,53 @@ describe('GET /api/receipts', () => {
   it('rejects an unknown member', async () => {
     const { status } = await receiptsAs('zoe');
     expect(status).toBe(400);
+  });
+});
+
+describe('POST /api/receipts/read', () => {
+  const reading = { merchant: 'X', date: '2026-10-02', currency: 'USD', items: [{ name: 'a', quantity: null, lineTotalCents: 100 }], subtotalCents: 100, discountCents: null, taxCents: null, totalCents: 100 };
+  const post = (app: Awaited<ReturnType<typeof buildApp>>, as = 'anna', body: Buffer | string = Buffer.from('img'), type = 'image/png') =>
+    app.inject({ method: 'POST', url: `/api/receipts/read?as=${as}`, headers: { 'content-type': type }, payload: body });
+
+  it('returns the reading for the organiser', async () => {
+    const app = await buildApp({ reader: async () => reading });
+    const res = await post(app);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual(reading);
+  });
+
+  it('refuses siblings, unsupported types and empty bodies', async () => {
+    const app = await buildApp({ reader: async () => reading });
+    expect((await post(app, 'ben')).statusCode).toBe(403);
+    expect((await post(app, 'anna', 'hello', 'text/plain')).statusCode).toBe(400);
+    expect((await post(app, 'anna', 'hello', 'application/pdf')).statusCode).toBe(415);
+    expect((await post(app, 'anna', '')).statusCode).toBe(400);
+  });
+
+  it('says 503 when reading is not set up', async () => {
+    const res = await post(await buildApp());
+    expect(res.statusCode).toBe(503);
+    expect(res.json().code).toBe('not_configured');
+  });
+
+  it('applies the limiter before reading', async () => {
+    let reads = 0;
+    const app = await buildApp({
+      reader: async () => (reads++, reading),
+      limiter: () => ({ ok: false, reason: 'rate' }),
+    });
+    const res = await post(app);
+    expect(res.statusCode).toBe(429);
+    expect(reads).toBe(0);
+  });
+
+  it('maps reading errors to friendly messages without leaking details', async () => {
+    const busy = await post(await buildApp({ reader: async () => Promise.reject(new ReadError('busy', 'secret detail')) }));
+    expect(busy.statusCode).toBe(503);
+    expect(busy.json().error).toContain('busy');
+    expect(JSON.stringify(busy.json())).not.toContain('secret detail');
+    const bad = await post(await buildApp({ reader: async () => Promise.reject(new ReadError('unreadable', 'x')) }));
+    expect(bad.statusCode).toBe(422);
   });
 });
 
