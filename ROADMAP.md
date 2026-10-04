@@ -80,7 +80,7 @@ the heart of the entry. Never cut phase 10.
 | 3 | First submission package (submit early) | planned |
 | 4 | Pay your share in the app (Checkout, Orders API) | planned, after the real-payment test of the webhooks |
 | 5 | PayPal webhooks: automatic status | done and live (revision `caresplit-00006-vcd`): a payment recorded in PayPal updated the app by itself within about 30 s; a buyer's payment on Ben's invoice is still to try |
-| 6 | AI chat assistant over the family's data, with confirmed actions | done and live Oct 4 (revision caresplit-00007, TTL on `assistantActions` active; chat uses its own model `gemini-3.1-flash-lite` and a budget of 150 Gemini requests a day per container, `CHAT_GEMINI_DAILY_BUDGET`, so receipt reading keeps its quota); optional PayPal Agent Toolkit step only if it works cleanly in the sandbox |
+| 6 | AI chat assistant over the family's data, with confirmed actions | done and live Oct 4 (revision caresplit-00007, TTL on `assistantActions` active; chat uses its own model `gemini-3.1-flash-lite` and a budget of 150 Gemini requests a day per container, `CHAT_GEMINI_DAILY_BUDGET`, so receipt reading keeps its quota); stage B (PayPal Agent Toolkit for remind and cancel) tried in the sandbox on Oct 4 and not adopted: cancel works, remind answers with an empty body (no success signal), it accepts free-typed extra recipient addresses, and it adds a large dependency tree (5 high advisories in a scratch install) for two REST calls we already make and test; we keep our own scoped tools |
 | 7 | AI checks: duplicates, high amounts, late payers | planned |
 | 8 | AI-written payment reminders | planned |
 | 9 | Monthly family report, downloadable | planned |
