@@ -45,6 +45,7 @@ describe('createPayPalClient', () => {
     const sent = JSON.parse(String(create.init.body));
     expect(sent.items[0].unit_amount).toEqual({ currency_code: 'USD', value: '15.56' });
     expect(sent.invoicer.email_address).toBe('merchant@example.com');
+    expect(sent.invoicer.business_name).toBe('CareSplit'); // the field PayPal keeps; the nested one alone left "Test Store"
     expect(sent.primary_recipients[0].billing_info.email_address).toBe('ben@example.com');
     expect((create.init.headers as Record<string, string>)['PayPal-Request-Id']).toBe('req-1');
   });
