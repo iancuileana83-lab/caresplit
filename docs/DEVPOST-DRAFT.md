@@ -68,6 +68,16 @@ overloads, so reading takes about a second and degrades gracefully; manual entry
 only in memory for one request and is never stored. All six demo receipts, including a tilted, grainy phone photo,
 are read correctly by an automated check.
 
+**An assistant for the organiser** (Gemini function calling, its own model so receipt reading keeps its quota) answers questions about
+receipts, who owes what and care credit, with every number worked out in code. It can only *propose* a reminder, a payment note,
+a cancellation or sending the unsent invoices: the proposal is a card, and nothing happens until the organiser presses Confirm.
+The server re-checks the real state, runs it once, and receipt text it reads is treated as data, never as instructions.
+
+**PayPal Agent Toolkit: evaluated, not used.** We tried `@paypal/agent-toolkit` in the sandbox for reminders and cancellations.
+Cancel worked, but the reminder call returns an empty answer (no success signal), both tools accept free-typed extra recipient
+addresses, it knows nothing about families or confirmation, and it brings a large dependency tree (high-severity advisories in a
+scratch install) for two REST calls we already make, test and scope to the family. So the assistant uses our own tools.
+
 ## How we built it (tools and how each was used)
 
 - **PayPal Invoicing API v2 (sandbox):** create, send, read, cancel and settle one invoice per sibling.
@@ -78,7 +88,7 @@ are read correctly by an automated check.
 - **Secret Manager and IAM:** the PayPal and Gemini keys; a dedicated service account that can read only those three secrets and only our database.
 - **React 19, Vite, Tailwind CSS, TypeScript:** a mobile-first interface with accessibility basics (labels, focus, contrast, keyboard use).
 - **Fastify 5 on Node 24:** the API: validation, per-visitor limits, PayPal and Gemini calls.
-- **Vitest and jsdom:** 158 automated tests, including a fake PayPal that can fail halfway.
+- **Vitest and jsdom:** 249 automated tests, including a fake PayPal that can fail halfway.
 - **Claude Code (Anthropic):** pair-programmed the whole project. The author set the goals and rules, approved each step and every cloud change, and tested on the live app; Claude Code planned, wrote and tested the code and ran the deployments only after approval. Every commit carries its `Co-Authored-By` line.
 
 ## Challenges we ran into
@@ -92,7 +102,7 @@ are read correctly by an automated check.
 ## Accomplishments we are proud of
 
 A complete, hosted, working loop (photo to paid invoice) that a stranger can try in three minutes; AI used where
-it helps and checked where it matters; PayPal used for real, with the failure cases handled; and a codebase with 158
+it helps and checked where it matters; PayPal used for real, with the failure cases handled; and a codebase with 249
 tests and an honest list of limitations.
 
 ## What we learned
@@ -103,9 +113,8 @@ what the AI read and let them correct it. And a calm, boring screen is the right
 ## What's next
 
 **A care log** that suggests the care credit from the hours each person gives (the next level of care credit), then paying inside the app with PayPal Checkout,
-PayPal webhooks for automatic status, an AI assistant that answers questions about the family's spending (and later acts
-through PayPal's agent tools, always with confirmation), checks for duplicate or unusual receipts, polite AI-written
-reminders, and a downloadable monthly report.
+(PayPal webhooks and the assistant are already built), 
+through PayPal's agent tools, always with confirmation), checks for duplicate or unusual receipts, and a downloadable monthly report.
 
 ## Built with (tags)
 
