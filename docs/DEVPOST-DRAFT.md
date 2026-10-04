@@ -113,8 +113,7 @@ what the AI read and let them correct it. And a calm, boring screen is the right
 ## What's next
 
 **A care log** that suggests the care credit from the hours each person gives (the next level of care credit), then paying inside the app with PayPal Checkout,
-(PayPal webhooks and the assistant are already built), 
-through PayPal's agent tools, always with confirmation), checks for duplicate or unusual receipts, and a downloadable monthly report.
+checks for duplicate or unusual receipts, and a downloadable monthly report. (PayPal webhooks and the assistant are already built.)
 
 ## Built with (tags)
 
