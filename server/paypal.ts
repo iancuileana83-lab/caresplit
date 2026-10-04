@@ -77,6 +77,9 @@ export function mapInvoiceStatus(status: string): ShareStatus {
   }
 }
 
+/** The name shown at the top of every invoice. */
+export const INVOICER_NAME = 'CareSplit';
+
 export function createPayPalClient(config: PayPalConfig) {
   const doFetch = config.fetchFn ?? fetch;
   const timeoutMs = config.timeoutMs ?? 20_000;
@@ -132,7 +135,9 @@ export function createPayPalClient(config: PayPalConfig) {
             note: req.note.slice(0, 4000),
             payment_term: { term_type: 'NET_10' },
           },
-          invoicer: { name: { business_name: 'CareSplit Demo' }, email_address: config.merchantEmail },
+          // The sandbox keeps only the top-level business_name (a nested name.business_name is dropped, and the
+          // invoice then shows the account's default "Test Store"). Checked on a draft, then the draft was deleted.
+          invoicer: { business_name: INVOICER_NAME, name: { business_name: INVOICER_NAME }, email_address: config.merchantEmail },
           primary_recipients: [{ billing_info: { name: { given_name: req.recipientName }, email_address: req.recipientEmail } }],
           items: [
             {
